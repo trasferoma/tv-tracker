@@ -42,7 +42,13 @@ function withAlphabeticalTiebreak(primaryComparator: ShowComparator): ShowCompar
 }
 
 function compareByActivity(a: SortableShow, b: SortableShow): number {
-    return compareMissingLast(a.show.lastViewedAt, b.show.lastViewedAt, compareTimestampsDescending);
+    const aActivityAt = lastActivityAt(a.show);
+    const bActivityAt = lastActivityAt(b.show);
+    return compareTimestampsDescending(aActivityAt, bActivityAt);
+}
+
+function lastActivityAt(show: TrackedShow): string {
+    return show.lastViewedAt !== undefined && show.lastViewedAt > show.addedAt ? show.lastViewedAt : show.addedAt;
 }
 
 function compareByTitle(a: SortableShow, b: SortableShow): number {

@@ -8,7 +8,9 @@ import type { CatalogSearchResult, CatalogShow, CatalogSource } from '@/catalog/
 import { sampleCatalogSource } from '@/catalog/sampleCatalogSource';
 import type { Episode, ItalianProvider, Season, TrackedShow } from '@/domain/trackedShow';
 import { calculateWatchPosition } from '@/domain/watchPosition';
+import { localTrackedShowStore } from '@/persistence/localTrackedShowStore';
 import type { AddShowOutcome, TrackedShowStore } from '@/persistence/trackedShowStore';
+import { tvTrackerDatabase } from '@/persistence/tvTrackerDatabase';
 
 const NOW = '2026-01-01T00:00:00.000Z';
 
@@ -352,6 +354,83 @@ describe('useAddShow — prossima puntata annunciata assente dalla stagione', ()
 
         const watchPosition = calculateWatchPosition(savedShow, '2026-01-01');
         expect(watchPosition.nextUpcomingEpisode?.providerEpisodeId).toBe('95403-S4E9');
+    });
+});
+
+describe('useAddShow — scrittura reale nel repository (fake-indexeddb)', () => {
+    afterEach(async () => {
+        await tvTrackerDatabase.trackedShows.clear();
+    });
+
+    it('salva la serie scelta nel repository reale e la rilegge con gli stessi dati', async () => {
+        const catalogShow = buildCatalogShow();
+        const catalogSource = buildCatalogSource({ loadShow: () => Promise.resolve({ outcome: 'found', show: catalogShow }) });
+        const { controller } = mountAddShow(buildDeps({ store: localTrackedShowStore, catalogSource }));
+
+        await controller.chooseResult(buildSearchResultItem());
+        controller.chooseProvider(undefined);
+        const outcome = await controller.save();
+
+        expect(outcome).toEqual({ outcome: 'added' });
+        expect(controller.saveError.value).toBeUndefined();
+        expect(controller.isSaving.value).toBe(false);
+        const savedShows = await tvTrackerDatabase.trackedShows.toArray();
+        expect(savedShows).toHaveLength(1);
+        expect(savedShows[0]?.title).toBe(catalogShow.title);
+        expect(savedShows[0]?.seasons).toEqual(catalogShow.seasons);
+    });
+});
+
+describe('useAddShow — errore imprevisto durante il salvataggio', () => {
+    it('libera isSaving e mostra un messaggio invece di lasciare il pulsante bloccato', async () => {
+        const store = buildStore({ addShow: () => Promise.reject(new Error('errore di salvataggio simulato')) });
+        const { controller } = mountAddShow(buildDeps({ store }));
+
+        await controller.chooseResult(buildSearchResultItem());
+        controller.chooseProvider(undefined);
+        const outcome = await controller.save();
+
+        expect(outcome).toBeUndefined();
+        expect(controller.isSaving.value).toBe(false);
+        expect(controller.saveError.value).toBe('Si è verificato un errore imprevisto. Riprova.');
+    });
+});
+
+describe('useAddShow — posizione iniziale limitata agli episodi già usciti', () => {
+    it('esclude gli episodi non ancora usciti dalle scelte per la posizione iniziale', async () => {
+        const catalogShow = buildCatalogShow({
+            seasons: [buildSeason(1, [
+                buildEpisode(1, 1, 'Episodio 1', '2022-01-01'),
+                buildEpisode(1, 2, 'Episodio 2', '2022-01-08'),
+                buildEpisode(1, 3, 'Episodio 3', '2099-01-01')
+            ])]
+        });
+        const catalogSource = buildCatalogSource({ loadShow: () => Promise.resolve({ outcome: 'found', show: catalogShow }) });
+        const { controller } = mountAddShow(buildDeps({ catalogSource, resolveToday: () => '2026-01-01' }));
+
+        await controller.chooseResult(buildSearchResultItem());
+
+        const publishedEpisodeIds = controller.selectedShow.value?.publishedEpisodes.map((episode) => episode.providerEpisodeId);
+        expect(publishedEpisodeIds).toEqual(['s1e1', 's1e2']);
+    });
+
+    it('una stagione interamente futura non compare fra gli episodi proponibili', async () => {
+        const catalogShow = buildCatalogShow({
+            seasons: [
+                buildSeason(1, [buildEpisode(1, 1, 'Episodio 1', '2022-01-01')]),
+                buildSeason(4, [
+                    buildEpisode(4, 1, 'Episodio futuro 1', '2099-01-01'),
+                    buildEpisode(4, 2, 'Episodio futuro 2', '2099-01-08')
+                ])
+            ]
+        });
+        const catalogSource = buildCatalogSource({ loadShow: () => Promise.resolve({ outcome: 'found', show: catalogShow }) });
+        const { controller } = mountAddShow(buildDeps({ catalogSource, resolveToday: () => '2026-01-01' }));
+
+        await controller.chooseResult(buildSearchResultItem());
+
+        const publishedSeasonNumbers = controller.selectedShow.value?.publishedEpisodes.map((episode) => episode.seasonNumber);
+        expect(publishedSeasonNumbers).toEqual([1]);
     });
 });
 

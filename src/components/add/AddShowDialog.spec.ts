@@ -218,6 +218,32 @@ describe('AddShowDialog — esiti distinti della ricerca', () => {
     });
 });
 
+describe('AddShowDialog — posizione iniziale limitata agli episodi già usciti', () => {
+    it('con una sola stagione futura propone solo «Da iniziare»', async () => {
+        const catalogShow = buildCatalogShow({
+            seasons: [buildSeason(4, [
+                buildEpisode(4, 1, 'Episodio futuro 1', '2099-01-01'),
+                buildEpisode(4, 2, 'Episodio futuro 2', '2099-01-08')
+            ])]
+        });
+        const catalogSource = buildCatalogSource({ loadShow: () => Promise.resolve({ outcome: 'found', show: catalogShow }) });
+        const wrapper = mountDialog(buildDeps({ catalogSource, resolveToday: () => '2026-01-01' }));
+
+        await wrapper.find('.search').setValue('scissione');
+        await waitLongerThanDebounce();
+        await nextTick();
+        await wrapper.find('.result').trigger('click');
+        await waitLongerThanDebounce();
+        await nextTick();
+        await wrapper.find('.provider-step .primary').trigger('click');
+        await nextTick();
+
+        const positionChoices = wrapper.findAll('.position-choice');
+        expect(positionChoices).toHaveLength(1);
+        expect(positionChoices[0]?.text()).toBe('Da iniziare');
+    });
+});
+
 describe('AddShowDialog — utilizzabilità da tastiera', () => {
     it('sposta il focus nel dialogo quando si apre', async () => {
         const wrapper = mountDialog(buildDeps(), false);

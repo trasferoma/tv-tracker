@@ -93,15 +93,34 @@ function toSortableEntry(show: TrackedShow): SortableShow {
 }
 
 describe('sortShows', () => {
-    it('ordina per ultima attività, con le serie mai iniziate in fondo e pareggio risolto per titolo (criterio 11)', () => {
+    it('ordina per ultima attività: prima la conferma «Vista» più recente, poi la data di inserimento per chi non ha conferme, pareggio risolto per titolo (criterio 11)', () => {
         const zeta = buildEntry('Zeta', { lastViewedAt: '2026-02-10T00:00:00Z' });
         const alfa = buildEntry('Alfa', { lastViewedAt: '2026-02-01T00:00:00Z' });
         const beta = buildEntry('Beta', { lastViewedAt: '2026-02-01T00:00:00Z' });
-        const gamma = buildEntry('Gamma');
+        const gamma = buildEntry('Gamma', { addedAt: '2026-01-15T00:00:00Z' });
 
         const sorted = sortShows([gamma, beta, zeta, alfa], 'activity');
 
         expect(titlesOf(sorted)).toEqual(['Zeta', 'Alfa', 'Beta', 'Gamma']);
+    });
+
+    it('con «Ultima attività», una serie appena aggiunta va in cima, sopra una confermata il giorno precedente', () => {
+        const watchedYesterday = buildEntry('Guardata ieri', { lastViewedAt: '2026-03-09T20:00:00Z' });
+        const justAdded = buildEntry('Appena aggiunta', { addedAt: '2026-03-10T08:00:00Z' });
+
+        const sorted = sortShows([watchedYesterday, justAdded], 'activity');
+
+        expect(titlesOf(sorted)).toEqual(['Appena aggiunta', 'Guardata ieri']);
+    });
+
+    it('con «Ultima attività», una serie aggiunta tempo fa e mai iniziata si colloca in base alla sua data di inserimento, non finisce sempre in fondo', () => {
+        const addedLongAgo = buildEntry('Aggiunta tempo fa', { addedAt: '2026-01-01T00:00:00Z' });
+        const watchedRecently = buildEntry('Guardata di recente', { lastViewedAt: '2026-02-01T00:00:00Z' });
+        const addedRecently = buildEntry('Aggiunta di recente', { addedAt: '2026-02-15T00:00:00Z' });
+
+        const sorted = sortShows([addedLongAgo, watchedRecently, addedRecently], 'activity');
+
+        expect(titlesOf(sorted)).toEqual(['Aggiunta di recente', 'Guardata di recente', 'Aggiunta tempo fa']);
     });
 
     it('ordina alfabeticamente sul titolo, con pareggio risolto restando stabile sull\'ordine di partenza (criterio 11)', () => {
@@ -152,15 +171,33 @@ describe('sortShows', () => {
 
     it('con ordinamento «Ultima attività» la serie appena confermata sale in cima (criterio 12)', () => {
         const alfa = buildEntry('Alfa', { lastViewedAt: '2026-02-01T00:00:00Z' });
-        const betaBeforeConfirmation = buildEntry('Beta', { lastViewedAt: '2026-01-01T00:00:00Z' });
 
-        const sortedBeforeConfirmation = sortShows([alfa, betaBeforeConfirmation], 'activity');
+        const firstConfirmation = advanceProgress(
+            buildShowWithEpisodes('Beta'),
+            'e1',
+            'fabio',
+            '2026-01-01T09:00:00Z',
+            CATALOG_TODAY
+        );
+        if (firstConfirmation.outcome !== 'applied') {
+            throw new Error('avanzamento inatteso rifiutato');
+        }
 
+        const sortedBeforeConfirmation = sortShows([alfa, toSortableEntry(firstConfirmation.show)], 'activity');
         expect(titlesOf(sortedBeforeConfirmation)).toEqual(['Alfa', 'Beta']);
 
-        const betaAfterConfirmation = buildEntry('Beta', { lastViewedAt: '2026-02-15T00:00:00Z' });
-        const sortedAfterConfirmation = sortShows([alfa, betaAfterConfirmation], 'activity');
+        const secondConfirmation = advanceProgress(
+            firstConfirmation.show,
+            'e2',
+            'fabio',
+            '2026-02-15T09:00:00Z',
+            CATALOG_TODAY
+        );
+        if (secondConfirmation.outcome !== 'applied') {
+            throw new Error('avanzamento inatteso rifiutato');
+        }
 
+        const sortedAfterConfirmation = sortShows([alfa, toSortableEntry(secondConfirmation.show)], 'activity');
         expect(titlesOf(sortedAfterConfirmation)).toEqual(['Beta', 'Alfa']);
     });
 
@@ -252,8 +289,11 @@ describe('sortShows', () => {
         expect(titlesOf(afterUndo)).toEqual(['Riferimento', 'Serie', 'MaiIniziata']);
     });
 
-    it('annullando l\'unica conferma di una serie, questa torna «mai iniziata» e finisce in fondo con «Ultima attività» (Fase 5 + criterio 11)', () => {
-        const reference = buildEntry('Riferimento', { lastViewedAt: '2026-01-01T00:00:00Z' });
+    it('annullando l\'unica conferma di una serie, questa si ordina per la sua data di inserimento e non sparisce in fondo (Fase 5 + criterio 11)', () => {
+        const reference = buildEntry('Riferimento', {
+            addedAt: '2025-11-01T00:00:00Z',
+            lastViewedAt: '2025-12-01T00:00:00Z'
+        });
 
         const onlyConfirmation = advanceProgress(
             buildShowWithEpisodes('Serie'),
@@ -282,7 +322,7 @@ describe('sortShows', () => {
         expect(undoOutcome.show.lastViewedAt).toBeUndefined();
 
         const afterUndo = sortShows([reference, toSortableEntry(undoOutcome.show)], 'activity');
-        expect(titlesOf(afterUndo)).toEqual(['Riferimento', 'Serie']);
+        expect(titlesOf(afterUndo)).toEqual(['Serie', 'Riferimento']);
     });
 
     it('lancia un errore diagnostico per un criterio di ordinamento non riconosciuto', () => {

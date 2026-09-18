@@ -26,7 +26,7 @@ const THE_BEAR: SampleShow = {
     originalTitle: 'The Bear',
     year: 2022,
     status: 'In corso',
-    seriesPosterUrl: 'https://poster.example/the-bear/serie.jpg',
+    seriesPosterUrl: 'https://image.tmdb.org/t/p/w342/eKfVzzEazSIjJMrw9ADa2x8ksLz.jpg',
     seasons: [
         {
             providerSeasonId: '136315-S1',
@@ -57,7 +57,7 @@ const THE_WHITE_LOTUS: SampleShow = {
     originalTitle: 'The White Lotus',
     year: 2021,
     status: 'In corso',
-    seriesPosterUrl: 'https://poster.example/the-white-lotus/serie.jpg',
+    seriesPosterUrl: 'https://image.tmdb.org/t/p/w342/gbSaK9v1CbcYH1ISgbM7XObD2dW.jpg',
     seasons: [
         {
             providerSeasonId: '111803-S1',
@@ -90,7 +90,7 @@ const SEVERANCE: SampleShow = {
     originalTitle: 'Severance',
     year: 2022,
     status: 'In corso',
-    seriesPosterUrl: 'https://poster.example/scissione/serie.jpg',
+    seriesPosterUrl: 'https://image.tmdb.org/t/p/w342/jnwqpZpmwvEo0CFLjDwfnnAf4ow.jpg',
     seasons: [
         {
             providerSeasonId: '95396-S0',
@@ -118,7 +118,7 @@ const ONLY_MURDERS: SampleShow = {
     originalTitle: 'Only Murders in the Building',
     year: 2021,
     status: 'In corso',
-    seriesPosterUrl: 'https://poster.example/only-murders/serie.jpg',
+    seriesPosterUrl: 'https://image.tmdb.org/t/p/w342/dGzOXiVFZRfIWCPE82bYqfEOxb1.jpg',
     seasons: [
         {
             providerSeasonId: '95403-S4',
@@ -149,12 +149,11 @@ const SLOW_HORSES: SampleShow = {
     originalTitle: 'Slow Horses',
     year: 2022,
     status: 'In corso',
-    seriesPosterUrl: 'https://poster.example/slow-horses/serie.jpg',
+    seriesPosterUrl: 'https://image.tmdb.org/t/p/w342/9VCkgs1zefGI2qjJzr1gSwAmzmf.jpg',
     seasons: [
         {
             providerSeasonId: '79093-S4',
             seasonNumber: 4,
-            posterUrl: 'https://poster.example/slow-horses/stagione-4.jpg',
             episodes: [
                 { providerEpisodeId: '79093-S4E1', seasonNumber: 4, episodeNumber: 1, title: 'Hello Sunshine', airDate: '2024-09-04' },
                 { providerEpisodeId: '79093-S4E2', seasonNumber: 4, episodeNumber: 2, title: 'Warsaw Rules', airDate: '2024-09-04' }

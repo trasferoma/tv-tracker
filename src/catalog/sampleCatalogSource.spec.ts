@@ -111,6 +111,27 @@ describe('sampleCatalogSource.loadShow', () => {
     });
 });
 
+describe('sampleCatalogSource — locandine', () => {
+    it('le locandine di serie sono URL reali di TMDB, non il dominio fittizio', async () => {
+        const queries = ['the bear', 'the white lotus', 'scissione', 'only murders', 'slow horses'];
+
+        for (const query of queries) {
+            const result = await loadSingleResult(query);
+            const show = await loadFoundShow(result!.providerShowId);
+
+            expect(show.seriesPosterUrl).toMatch(/^https:\/\/image\.tmdb\.org\//);
+        }
+    });
+
+    it('una serie priva di locandine di stagione ricade sulla locandina generale', async () => {
+        const result = await loadSingleResult('slow horses');
+        const show = await loadFoundShow(result!.providerShowId);
+
+        expect(show.seasons.every((season) => season.posterUrl === undefined)).toBe(true);
+        expect(show.seriesPosterUrl).toBeDefined();
+    });
+});
+
 describe('sampleCatalogSource.loadItalianProviders', () => {
     it('una serie con più piattaforme italiane le restituisce tutte', async () => {
         const result = await loadSingleResult('the white lotus');

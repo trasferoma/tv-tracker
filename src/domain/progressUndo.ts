@@ -23,23 +23,19 @@ export function undoLastProgress(
 }
 
 function findLastUndoableEvent(show: TrackedShow, progressEvents: readonly ProgressEvent[]): ProgressEvent | undefined {
-    return progressEvents
-            .filter((event) => isUndoableEventForShow(event, show))
-            .reduce<ProgressEvent | undefined>(keepMostRecent, undefined);
+    return findActiveConfirmationOf(progressEvents, show.id, show.lastWatchedEpisodeId);
 }
 
-function isUndoableEventForShow(event: ProgressEvent, show: TrackedShow): boolean {
-    return event.trackedShowId === show.id && event.undoneAt === undefined;
-}
-
-function keepMostRecent(latest: ProgressEvent | undefined, candidate: ProgressEvent): ProgressEvent {
-    if (latest === undefined) {
-        return candidate;
-    }
-    if (candidate.confirmedAt !== latest.confirmedAt) {
-        return candidate.confirmedAt > latest.confirmedAt ? candidate : latest;
-    }
-    return candidate.id > latest.id ? candidate : latest;
+function findActiveConfirmationOf(
+    progressEvents: readonly ProgressEvent[],
+    trackedShowId: string,
+    confirmedEpisodeId: string | undefined
+): ProgressEvent | undefined {
+    return progressEvents.find(
+        (event) => event.trackedShowId === trackedShowId
+                && event.confirmedEpisodeId === confirmedEpisodeId
+                && event.undoneAt === undefined
+    );
 }
 
 function applyUndo(event: ProgressEvent, undoneBy: string, undoneAt: string): ProgressEvent {
@@ -66,18 +62,8 @@ function resolveLastViewedAt(progressEvents: readonly ProgressEvent[], undoneEve
     if (undoneEvent.previousEpisodeId === undefined) {
         return undefined;
     }
-    const restoredConfirmation = findConfirmationOf(progressEvents, undoneEvent.trackedShowId, undoneEvent.previousEpisodeId);
+    const restoredConfirmation = findActiveConfirmationOf(progressEvents, undoneEvent.trackedShowId, undoneEvent.previousEpisodeId);
     return restoredConfirmation?.confirmedAt;
-}
-
-function findConfirmationOf(
-    progressEvents: readonly ProgressEvent[],
-    trackedShowId: string,
-    confirmedEpisodeId: string
-): ProgressEvent | undefined {
-    return progressEvents
-            .filter((event) => event.trackedShowId === trackedShowId && event.confirmedEpisodeId === confirmedEpisodeId)
-            .reduce<ProgressEvent | undefined>(keepMostRecent, undefined);
 }
 
 function rejected(reason: string): ProgressOutcome {

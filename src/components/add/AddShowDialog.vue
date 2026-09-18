@@ -223,7 +223,7 @@ async function submitAdd(): Promise<void> {
           />
           <template v-if="addShow.step.value === 'position'">
             <InitialPositionPicker
-              :episodes="addShow.selectedShow.value?.episodes ?? []"
+              :episodes="addShow.selectedShow.value?.publishedEpisodes ?? []"
               :model-value="addShow.initialPosition.value"
               @update:model-value="addShow.setInitialPosition"
             />

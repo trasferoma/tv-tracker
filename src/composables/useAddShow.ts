@@ -1,4 +1,4 @@
-import { computed, onUnmounted, ref, type ComputedRef, type Ref } from 'vue';
+import { computed, onUnmounted, ref, shallowRef, type ComputedRef, type Ref } from 'vue';
 
 import type {
     CatalogSearchResult,
@@ -8,6 +8,7 @@ import type {
     SearchShowsOutcome
 } from '@/catalog/catalogSource';
 import { tmdbCatalogSource } from '@/catalog/tmdbCatalogSource';
+import { isAlreadyPublished, toCatalogDate } from '@/domain/catalogDate';
 import { mergeAnnouncedEpisode } from '@/domain/catalogMerge';
 import { buildEpisodeSequence } from '@/domain/episodeOrder';
 import { generateId } from '@/domain/identity';
@@ -18,6 +19,7 @@ import type { AddShowOutcome, TrackedShowStore } from '@/persistence/trackedShow
 const SEARCH_DEBOUNCE_MS = 500;
 const SHOW_UNAVAILABLE_REASON = 'Questa serie non è più disponibile nel catalogo.';
 const DUPLICATE_SHOW_REASON = 'Questa serie è già stata aggiunta.';
+const UNEXPECTED_ERROR_REASON = 'Si è verificato un errore imprevisto. Riprova.';
 
 export type AddShowStep = 'search' | 'provider' | 'position';
 
@@ -45,13 +47,14 @@ export interface SelectedShowView {
     readonly year: number | undefined;
     readonly posterUrl: string | undefined;
     readonly providers: readonly ItalianProvider[];
-    readonly episodes: readonly Episode[];
+    readonly publishedEpisodes: readonly Episode[];
 }
 
 export interface AddShowDeps {
     readonly store?: TrackedShowStore;
     readonly catalogSource?: CatalogSource;
     readonly resolveNow?: () => string;
+    readonly resolveToday?: () => string;
     readonly debounceMs?: number;
     readonly trackedProviderShowIds?: { readonly value: ReadonlySet<string> };
 }
@@ -79,13 +82,14 @@ interface SelectedShowState {
     readonly catalogShow: CatalogShow;
     readonly searchResult: SearchResultItem;
     readonly providers: readonly ItalianProvider[];
-    readonly episodes: readonly Episode[];
+    readonly publishedEpisodes: readonly Episode[];
 }
 
 export function useAddShow(deps: AddShowDeps = {}): UseAddShow {
     const store = deps.store ?? currentTrackedShowStore;
     const catalogSource = deps.catalogSource ?? tmdbCatalogSource;
     const resolveNow = deps.resolveNow ?? (() => new Date().toISOString());
+    const resolveToday = deps.resolveToday ?? (() => toCatalogDate(new Date()));
     const debounceMs = deps.debounceMs ?? SEARCH_DEBOUNCE_MS;
     const trackedProviderShowIds = deps.trackedProviderShowIds ?? { value: new Set<string>() };
 
@@ -93,7 +97,7 @@ export function useAddShow(deps: AddShowDeps = {}): UseAddShow {
     const query = ref('');
     const searchStatus = ref<SearchStatus>({ kind: 'idle' });
     const isLoadingSelection = ref(false);
-    const selectedShowState = ref<SelectedShowState>();
+    const selectedShowState = shallowRef<SelectedShowState>();
     const selectedProviderId = ref<string>();
     const initialPosition = ref<InitialPositionChoice>({ kind: 'notStarted' });
     const isSaving = ref(false);
@@ -142,17 +146,29 @@ export function useAddShow(deps: AddShowDeps = {}): UseAddShow {
         step.value = 'provider';
         isLoadingSelection.value = true;
         selectedShowState.value = undefined;
+        try {
+            await loadSelectedShow(result);
+        } catch (error) {
+            console.error('Errore imprevisto durante il caricamento della serie scelta.', error);
+            rejectSelection(UNEXPECTED_ERROR_REASON);
+        } finally {
+            isLoadingSelection.value = false;
+        }
+    }
+
+    async function loadSelectedShow(result: SearchResultItem): Promise<void> {
         const loadShowPromise = catalogSource.loadShow(result.providerShowId);
         const loadProvidersPromise = loadProviders(result.providerShowId);
         const [loadShowOutcome, providers] = await Promise.all([loadShowPromise, loadProvidersPromise]);
-        isLoadingSelection.value = false;
         if (loadShowOutcome.outcome !== 'found') {
             const reason = resolveLoadShowError(loadShowOutcome);
             rejectSelection(reason);
             return;
         }
         const episodes = buildEpisodeSequence(loadShowOutcome.show);
-        selectedShowState.value = { catalogShow: loadShowOutcome.show, searchResult: result, providers, episodes };
+        const today = resolveToday();
+        const publishedEpisodes = filterPublishedEpisodes(episodes, today);
+        selectedShowState.value = { catalogShow: loadShowOutcome.show, searchResult: result, providers, publishedEpisodes };
         selectedProviderId.value = providers.length === 1 ? providers[0]?.id : undefined;
     }
 
@@ -194,11 +210,22 @@ export function useAddShow(deps: AddShowDeps = {}): UseAddShow {
         }
         isSaving.value = true;
         saveError.value = undefined;
+        try {
+            return await saveSelectedShow(current);
+        } catch (error) {
+            console.error('Errore imprevisto durante il salvataggio della serie.', error);
+            saveError.value = UNEXPECTED_ERROR_REASON;
+            return undefined;
+        } finally {
+            isSaving.value = false;
+        }
+    }
+
+    async function saveSelectedShow(current: SelectedShowState): Promise<AddShowOutcome> {
         const selectedProvider = current.providers.find((provider) => provider.id === selectedProviderId.value);
         const now = resolveNow();
         const show = buildTrackedShow(current, selectedProvider, initialPosition.value, now);
         const outcome = await store.addShow(show);
-        isSaving.value = false;
         if (outcome.outcome === 'rejected') {
             saveError.value = outcome.reason;
             return outcome;
@@ -243,8 +270,12 @@ function toSelectedShowView(state: SelectedShowState | undefined): SelectedShowV
         year: state.searchResult.year,
         posterUrl: state.searchResult.posterUrl,
         providers: state.providers,
-        episodes: state.episodes
+        publishedEpisodes: state.publishedEpisodes
     };
+}
+
+function filterPublishedEpisodes(episodes: readonly Episode[], today: string): readonly Episode[] {
+    return episodes.filter((episode) => isAlreadyPublished(episode.airDate, today));
 }
 
 function toSearchResultItem(result: CatalogSearchResult): SearchResultItem {

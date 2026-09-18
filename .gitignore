@@ -1,0 +1,23 @@
+# Credenziali — mai nel repository
+spec/apikey/
+.env
+.env.local
+.env.*.local
+
+# Dipendenze e build
+node_modules/
+dist/
+dist-ssr/
+*.tsbuildinfo
+.wrangler/
+
+# Editor e sistema
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# Log
+*.log
+npm-debug.log*

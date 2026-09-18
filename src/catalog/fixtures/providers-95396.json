@@ -1,0 +1,62 @@
+{
+  "id": 95396,
+  "results": {
+    "IT": {
+      "link": "https://www.themoviedb.org/tv/95396-severance/watch?locale=IT",
+      "flatrate": [
+        {
+          "logo_path": "/9icYBfYFcwgCbky5VdGUIKJ4C5i.png",
+          "provider_id": 350,
+          "provider_name": "Apple TV",
+          "display_priority": 2
+        },
+        {
+          "logo_path": "/rerVCu9auZrgxTTiZu1criqrQzg.png",
+          "provider_id": 2243,
+          "provider_name": "Apple TV Amazon Channel",
+          "display_priority": 76
+        }
+      ]
+    },
+    "US": {
+      "link": "https://www.themoviedb.org/tv/95396-severance/watch?locale=US",
+      "flatrate": [
+        {
+          "logo_path": "/9icYBfYFcwgCbky5VdGUIKJ4C5i.png",
+          "provider_id": 350,
+          "provider_name": "Apple TV",
+          "display_priority": 4
+        },
+        {
+          "logo_path": "/rerVCu9auZrgxTTiZu1criqrQzg.png",
+          "provider_id": 2243,
+          "provider_name": "Apple TV Amazon Channel",
+          "display_priority": 216
+        }
+      ]
+    },
+    "FR": {
+      "link": "https://www.themoviedb.org/tv/95396-severance/watch?locale=FR",
+      "flatrate": [
+        {
+          "logo_path": "/9icYBfYFcwgCbky5VdGUIKJ4C5i.png",
+          "provider_id": 350,
+          "provider_name": "Apple TV",
+          "display_priority": 3
+        },
+        {
+          "logo_path": "/gliWKhLJVdm7QwL1braBCRko5dx.png",
+          "provider_id": 381,
+          "provider_name": "Canal+",
+          "display_priority": 8
+        },
+        {
+          "logo_path": "/rerVCu9auZrgxTTiZu1criqrQzg.png",
+          "provider_id": 2243,
+          "provider_name": "Apple TV Amazon Channel",
+          "display_priority": 107
+        }
+      ]
+    }
+  }
+}

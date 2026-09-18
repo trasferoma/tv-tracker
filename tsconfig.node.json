@@ -1,0 +1,33 @@
+{
+    "compilerOptions": {
+        "composite": true,
+        "target": "ES2022",
+        "lib": ["ES2022", "DOM"],
+        "module": "ESNext",
+        "moduleResolution": "Bundler",
+        "resolveJsonModule": true,
+        "isolatedModules": true,
+        "verbatimModuleSyntax": true,
+        "noEmit": true,
+        // allowJs: scripts/check-node-version.mjs e le future Pages Function
+        // in functions/ non sono progetti TypeScript propri; senza allowJs
+        // tsc li escluderebbe in silenzio dal type-check anche se coperti
+        // dall'include.
+        "allowJs": true,
+        "strict": true,
+        "noUncheckedIndexedAccess": true,
+        "noImplicitOverride": true,
+        "exactOptionalPropertyTypes": true,
+        "noUnusedLocals": true,
+        "noUnusedParameters": true,
+        "skipLibCheck": true,
+        "types": ["node"]
+    },
+    "include": [
+        "vite.config.ts",
+        "vitest.setup.ts",
+        "functions/**/*.ts",
+        "scripts/**/*.mjs",
+        "src/catalog/tmdbRequest.ts"
+    ]
+}

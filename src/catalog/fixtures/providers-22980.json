@@ -1,0 +1,70 @@
+{
+  "id": 22980,
+  "results": {
+    "IT": {
+      "link": "https://www.themoviedb.org/tv/22980-watch-what-happens-live-with-andy-cohen/watch?locale=IT",
+      "flatrate": [
+        {
+          "logo_path": "/7j9bf0UmdxxmZtPsLggYLnGqrqS.png",
+          "provider_id": 296,
+          "provider_name": "Hayu Amazon Channel",
+          "display_priority": 49
+        }
+      ]
+    },
+    "US": {
+      "link": "https://www.themoviedb.org/tv/22980-watch-what-happens-live-with-andy-cohen/watch?locale=US",
+      "ads": [
+        {
+          "logo_path": "/geRNAmvuPF6hOLExMHLKpt7bGBD.png",
+          "provider_id": 79,
+          "provider_name": "NBC",
+          "display_priority": 48
+        }
+      ],
+      "flatrate": [
+        {
+          "logo_path": "/3wF8xISfVlcrc8X3jaa3uMUFGAr.png",
+          "provider_id": 257,
+          "provider_name": "fuboTV",
+          "display_priority": 10
+        },
+        {
+          "logo_path": "/a1UIdq5BrkcAxnxcUhFsNbXnxeu.png",
+          "provider_id": 386,
+          "provider_name": "Peacock Premium",
+          "display_priority": 16
+        },
+        {
+          "logo_path": "/geRNAmvuPF6hOLExMHLKpt7bGBD.png",
+          "provider_id": 79,
+          "provider_name": "NBC",
+          "display_priority": 48
+        },
+        {
+          "logo_path": "/8VIyhPVvdnmfpi4XCchb2qbbwwb.png",
+          "provider_id": 365,
+          "provider_name": "Bravo TV",
+          "display_priority": 98
+        },
+        {
+          "logo_path": "/yrEwyMzEKdqAoGhaWUARtIxByol.png",
+          "provider_id": 387,
+          "provider_name": "Peacock Premium Plus",
+          "display_priority": 214
+        }
+      ]
+    },
+    "FR": {
+      "link": "https://www.themoviedb.org/tv/22980-watch-what-happens-live-with-andy-cohen/watch?locale=FR",
+      "flatrate": [
+        {
+          "logo_path": "/7j9bf0UmdxxmZtPsLggYLnGqrqS.png",
+          "provider_id": 296,
+          "provider_name": "Hayu Amazon Channel",
+          "display_priority": 42
+        }
+      ]
+    }
+  }
+}

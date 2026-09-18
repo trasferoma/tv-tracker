@@ -1,0 +1,50 @@
+:root {
+    color-scheme: light;
+
+    --bg: #f3f8fb;
+    --bg-gradient-top: #eaf5f9;
+    --bg-gradient-mid: #f7fafb;
+    --surface: #ffffff;
+    --surface-2: #edf5f8;
+    --surface-3: #fbfdfe;
+    --border: #d7e4ea;
+
+    --text: #16313c;
+    --text-dim: #68808a;
+    --text-inverse: #ffffff;
+
+    --accent: #087f8c;
+    --accent-soft: #dff3f5;
+
+    --success: #23835b;
+    --success-soft: #e6f4ec;
+
+    --warn: #8a6714;
+    --warn-ink: #7c5b12;
+    --warn-soft: #fff9e9;
+    --warn-border: #d9b75966;
+
+    --danger: #c94c5c;
+    --danger-border: #c94c5c55;
+
+    --fabio: #176c86;
+    --fabio-soft: #dceff5;
+    --irene: #a04c7c;
+    --irene-soft: #f4e6ef;
+
+    --shadow-card: 0 12px 34px #2c5c7014;
+    --shadow-login: 0 22px 60px #2c5c7024;
+    --shadow-dialog: 0 30px 80px #173d4d42;
+    --shadow-fab: 0 12px 30px #087f8c55;
+    --backdrop: #17313a66;
+    --poster-scrim: #000000bb;
+    --poster-text-shadow: #000000a6;
+
+    --radius-sm: 12px;
+    --radius-md: 14px;
+    --radius-lg: 18px;
+    --radius-xl: 24px;
+
+    --tap: 46px;
+    --gutter: 16px;
+}

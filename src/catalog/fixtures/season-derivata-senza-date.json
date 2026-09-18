@@ -1,0 +1,18 @@
+{
+  "id": 401674,
+  "name": "Stagione 2",
+  "season_number": 2,
+  "poster_path": "/7GaivmIzvXq9p1kcXmHjMvjmMxA.jpg",
+  "episodes": [
+    { "id": 5469028, "season_number": 2, "episode_number": 1, "name": "Salve, signora Cobel", "air_date": "2025-01-16" },
+    { "id": 5469115, "season_number": 2, "episode_number": 2, "name": "Addio, signora Selvig", "air_date": "2025-01-23" },
+    { "id": 5469117, "season_number": 2, "episode_number": 3, "name": "Chi è vivo?", "air_date": "2025-01-30" },
+    { "id": 5469118, "season_number": 2, "episode_number": 4, "name": "La Valle del Dolore", "air_date": "2025-02-06" },
+    { "id": 5469120, "season_number": 2, "episode_number": 5, "name": "Il cavallo di Troia", "air_date": null },
+    { "id": 5469123, "season_number": 2, "episode_number": 6, "name": "Attila", "air_date": "2025-02-20" },
+    { "id": 5469128, "season_number": 2, "episode_number": 7, "name": "Il Bardo Chikhai", "air_date": "2025-02-27" },
+    { "id": 5469133, "season_number": 2, "episode_number": 8, "name": "Dolce vetriolo", "air_date": "2025-03-06" },
+    { "id": 5469139, "season_number": 2, "episode_number": 9, "name": "Fuori orario", "air_date": null },
+    { "id": 5469142, "season_number": 2, "episode_number": 10, "name": "Cold Harbor", "air_date": "2025-03-20" }
+  ]
+}

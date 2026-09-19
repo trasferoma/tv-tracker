@@ -57,7 +57,7 @@ describe('exportBackup', () => {
     it('scarica il file con il nome basato sulla data di esportazione', async () => {
         const downloadSpy = vi.spyOn(backupExport, 'downloadBackupFile').mockImplementation(() => {});
         await localTrackedShowStore.addShow(buildShow());
-        const backup = useBackup({ resolveNow: () => new Date('2026-02-01T10:00:00.000Z') });
+        const backup = useBackup({ store: localTrackedShowStore, resolveNow: () => new Date('2026-02-01T10:00:00.000Z') });
 
         await backup.exportBackup();
 
@@ -70,7 +70,7 @@ describe('prepareImport', () => {
     it('rifiuta un testo che non è JSON valido, senza toccare il database', async () => {
         const existing = buildShow();
         await localTrackedShowStore.addShow(existing);
-        const backup = useBackup();
+        const backup = useBackup({ store: localTrackedShowStore });
 
         await backup.prepareImport('non è json');
 
@@ -84,7 +84,7 @@ describe('prepareImport', () => {
     it('rifiuta un file con versione ignota, senza toccare il database', async () => {
         const existing = buildShow();
         await localTrackedShowStore.addShow(existing);
-        const backup = useBackup();
+        const backup = useBackup({ store: localTrackedShowStore });
 
         await backup.prepareImport(JSON.stringify({ formatVersion: 2, exportedAt: '2026-01-01', shows: [], progressEvents: [] }));
 
@@ -95,7 +95,7 @@ describe('prepareImport', () => {
     it('rifiuta un file troncato, senza toccare il database', async () => {
         const existing = buildShow();
         await localTrackedShowStore.addShow(existing);
-        const backup = useBackup();
+        const backup = useBackup({ store: localTrackedShowStore });
 
         await backup.prepareImport(JSON.stringify({ formatVersion: 1 }));
 
@@ -107,7 +107,7 @@ describe('prepareImport', () => {
         const existing = buildShow();
         await localTrackedShowStore.addShow(existing);
         const invalidShow = buildShow({ providerShowId: 'from-file', lastWatchedEpisodeId: 'sconosciuto' });
-        const backup = useBackup();
+        const backup = useBackup({ store: localTrackedShowStore });
 
         await backup.prepareImport(buildBackupContent([invalidShow]));
 
@@ -119,7 +119,7 @@ describe('prepareImport', () => {
         const local = buildShow({ providerShowId: 'local' });
         await localTrackedShowStore.addShow(local);
         const fromFile = buildShow({ providerShowId: 'from-file' });
-        const backup = useBackup();
+        const backup = useBackup({ store: localTrackedShowStore });
 
         await backup.prepareImport(buildBackupContent([local, fromFile]));
 
@@ -137,7 +137,7 @@ describe('confirmMerge', () => {
         const local = buildShow({ providerShowId: 'local' });
         await localTrackedShowStore.addShow(local);
         const fromFile = buildShow({ providerShowId: 'from-file' });
-        const backup = useBackup();
+        const backup = useBackup({ store: localTrackedShowStore });
         await backup.prepareImport(buildBackupContent([fromFile]));
 
         const outcome = await backup.confirmMerge();
@@ -164,7 +164,7 @@ describe('confirmReplace', () => {
     it('sostituisce tutto con le serie del file, torna allo stato inattivo e dichiara l\'esito pieno', async () => {
         await localTrackedShowStore.addShow(buildShow({ providerShowId: 'existing' }));
         const fromFile = buildShow({ providerShowId: 'from-file' });
-        const backup = useBackup();
+        const backup = useBackup({ store: localTrackedShowStore });
         await backup.prepareImport(buildBackupContent([fromFile]));
 
         const outcome = await backup.confirmReplace();
@@ -190,7 +190,7 @@ describe('cancelImport', () => {
     it('torna allo stato inattivo senza scrivere nel database', async () => {
         const existing = buildShow();
         await localTrackedShowStore.addShow(existing);
-        const backup = useBackup();
+        const backup = useBackup({ store: localTrackedShowStore });
         await backup.prepareImport(buildBackupContent([buildShow({ providerShowId: 'from-file' })]));
 
         backup.cancelImport();

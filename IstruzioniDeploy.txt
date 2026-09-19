@@ -1,0 +1,7 @@
+ $env:PATH = "$env:LOCALAPPDATA\fnm;$env:PATH"
+
+! fnm env --use-on-cd --shell power-shell | Out-String | Invoke-Expression
+
+! fnm use 22
+
+npx wrangler pages deploy dist --project-name tv-tracker --branch master --commit-dirty=true

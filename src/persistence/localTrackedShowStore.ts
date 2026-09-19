@@ -5,6 +5,7 @@ import type {
     AddShowOutcome,
     ChangeProviderOutcome,
     RemoveShowOutcome,
+    ReplaceAllShowsOutcome,
     TrackedShowListener,
     TrackedShowsListener,
     TrackedShowStore,
@@ -13,7 +14,7 @@ import type {
 } from './trackedShowStore';
 import { advanceProgress as computeAdvance } from '@/domain/progressAdvance';
 import { undoLastProgress as computeUndo } from '@/domain/progressUndo';
-import type { ItalianProvider, ProgressOutcome, TrackedShow } from '@/domain/trackedShow';
+import type { ItalianProvider, ProgressEvent, ProgressOutcome, TrackedShow } from '@/domain/trackedShow';
 
 const SHOW_NOT_FOUND_REASON = 'La serie non esiste più: potrebbe essere stata rimossa da un altro dispositivo.';
 
@@ -135,6 +136,28 @@ async function removeShow(id: string): Promise<RemoveShowOutcome> {
     );
 }
 
+async function listAllProgressEvents(): Promise<readonly ProgressEvent[]> {
+    return tvTrackerDatabase.progressEvents.toArray();
+}
+
+async function replaceAllShows(
+    shows: readonly TrackedShow[],
+    progressEvents: readonly ProgressEvent[]
+): Promise<ReplaceAllShowsOutcome> {
+    await tvTrackerDatabase.transaction(
+        'rw',
+        tvTrackerDatabase.trackedShows,
+        tvTrackerDatabase.progressEvents,
+        async () => {
+            await tvTrackerDatabase.trackedShows.clear();
+            await tvTrackerDatabase.progressEvents.clear();
+            await tvTrackerDatabase.trackedShows.bulkPut(shows);
+            await tvTrackerDatabase.progressEvents.bulkPut(progressEvents);
+        }
+    );
+    return { outcome: 'replaced' };
+}
+
 export const localTrackedShowStore: TrackedShowStore = {
     subscribeToTrackedShows,
     subscribeToShow,
@@ -143,5 +166,7 @@ export const localTrackedShowStore: TrackedShowStore = {
     changeProvider,
     advanceProgress,
     undoLastProgress,
-    removeShow
+    removeShow,
+    listAllProgressEvents,
+    replaceAllShows
 };

@@ -3,9 +3,12 @@ import { computed } from 'vue';
 
 import { matchSessionState, session } from '@/auth/session';
 import AppIcon from '@/components/icon/AppIcon.vue';
+import { useCatalogRefresh } from '@/composables/useCatalogRefresh';
 import { router } from '@/router';
 
 const emit = defineEmits<{ refresh: [] }>();
+
+const catalogRefresh = useCatalogRefresh();
 
 const activeUserName = computed(() => matchSessionState(session.state.value, {
     restoring: () => '',
@@ -29,7 +32,12 @@ function logout(): void {
       <div class="logo">
         <AppIcon name="play" />
       </div>
-      <h1>TV Tracker</h1>
+      <div>
+        <h1>TV Tracker</h1>
+        <p class="sync">
+          Lista condivisa · {{ catalogRefresh.lastCheckedLabel.value }}
+        </p>
+      </div>
     </div>
     <div class="top-actions">
       <span class="user-chip">{{ activeUserName }}</span>
@@ -37,6 +45,7 @@ function logout(): void {
         type="button"
         class="icon-btn"
         aria-label="Aggiorna"
+        :disabled="catalogRefresh.isRefreshing.value"
         @click="requestRefresh"
       >
         <AppIcon name="refresh" />
@@ -72,6 +81,10 @@ function logout(): void {
     min-width: 0;
 }
 
+.brand > div {
+    min-width: 0;
+}
+
 .logo {
     width: 42px;
     height: 42px;
@@ -92,6 +105,15 @@ function logout(): void {
 .app-top-bar h1 {
     font-size: 21px;
     margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sync {
+    margin: 2px 0 0;
+    font-size: 12px;
+    color: var(--text-dim);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -126,6 +148,10 @@ function logout(): void {
     border-radius: var(--radius-md);
     background: var(--surface);
     color: var(--accent);
+}
+
+.icon-btn[disabled] {
+    opacity: .6;
 }
 
 .icon-btn svg {

@@ -8,6 +8,11 @@ const UNKNOWN_DATE_LABEL = 'Data non nota';
 const ALL_WATCHED_LABEL = 'In pari';
 const ALL_SHOWS_CAUGHT_UP_SUMMARY = 'Siete in pari con tutto';
 const NO_BACKLOG_HEADLINE = 'Nessuna puntata arretrata.';
+const NEVER_REFRESHED_LABEL = 'non ancora aggiornata';
+const JUST_REFRESHED_LABEL = 'aggiornata ora';
+const MINUTE_MS = 60_000;
+const HOUR_MS = 60 * MINUTE_MS;
+const DAY_MS = 24 * HOUR_MS;
 
 export function formatCatalogDate(catalogDate: string | undefined): string {
     if (catalogDate === undefined) {
@@ -61,6 +66,32 @@ export function formatBacklogHeadline(backlogCount: number): string {
     }
     const episodeNoun = backlogCount === 1 ? 'puntata pubblicata' : 'puntate pubblicate';
     return `${backlogCount} ${episodeNoun} da vedere.`;
+}
+
+export function formatLastRefreshLabel(lastCheckedAt: string | undefined, now: string): string {
+    if (lastCheckedAt === undefined) {
+        return NEVER_REFRESHED_LABEL;
+    }
+    const elapsedMs = new Date(now).getTime() - new Date(lastCheckedAt).getTime();
+    return formatElapsedRefreshLabel(elapsedMs);
+}
+
+function formatElapsedRefreshLabel(elapsedMs: number): string {
+    if (elapsedMs < MINUTE_MS) {
+        return JUST_REFRESHED_LABEL;
+    }
+    if (elapsedMs < HOUR_MS) {
+        return formatElapsedUnitLabel(Math.floor(elapsedMs / MINUTE_MS), 'minuto', 'minuti');
+    }
+    if (elapsedMs < DAY_MS) {
+        return formatElapsedUnitLabel(Math.floor(elapsedMs / HOUR_MS), 'ora', 'ore');
+    }
+    return formatElapsedUnitLabel(Math.floor(elapsedMs / DAY_MS), 'giorno', 'giorni');
+}
+
+function formatElapsedUnitLabel(count: number, singular: string, plural: string): string {
+    const unit = count === 1 ? singular : plural;
+    return `aggiornata ${count} ${unit} fa`;
 }
 
 function parseCatalogDateAsLocalDate(catalogDate: string): Date {

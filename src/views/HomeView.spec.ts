@@ -1,9 +1,14 @@
 // @vitest-environment jsdom
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
+import { ref } from 'vue';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createRouter, createWebHistory } from 'vue-router';
 
-import type { Episode, Season, TrackedShow } from '@/domain/trackedShow';
+import { APP_VERSION } from '@/appVersion';
+import type { BackupImportSummary } from '@/backup/backupImport';
+import type { CatalogSource, LoadShowOutcome } from '@/catalog/catalogSource';
+import type { UseBackup } from '@/composables/useBackup';
+import type { Episode, ProgressOutcome, Season, TrackedShow } from '@/domain/trackedShow';
 import type {
     AddShowOutcome,
     TrackedShowListener,
@@ -60,11 +65,58 @@ function buildStubStore(initialShows: readonly TrackedShow[]): TrackedShowStore 
         changeProvider: notImplemented,
         advanceProgress: notImplemented,
         undoLastProgress: notImplemented,
-        removeShow: notImplemented
+        removeShow: notImplemented,
+        listAllProgressEvents: notImplemented,
+        replaceAllShows: notImplemented
+    };
+}
+
+function buildStoreWithAdvanceableProgress(show: TrackedShow): TrackedShowStore {
+    const notImplemented = (): Promise<never> => Promise.reject(new Error('non usato in questo test'));
+    return {
+        ...buildStubStore([show]),
+        advanceProgress: (): Promise<ProgressOutcome> => Promise.resolve({
+            outcome: 'applied',
+            show: { ...show, lastWatchedEpisodeId: 's1e1' },
+            event: {
+                id: 'event-1',
+                trackedShowId: show.id,
+                confirmedEpisodeId: 's1e1',
+                seasonNumber: 1,
+                episodeNumber: 1,
+                episodeTitle: 'Episodio 1',
+                confirmedAt: '2026-03-01T09:00:00.000Z',
+                confirmedBy: 'fabio'
+            }
+        }),
+        undoLastProgress: notImplemented
+    };
+}
+
+function buildBackupStubReadyToMergePartially(reason: string): UseBackup {
+    const notImplemented = (): Promise<never> => Promise.reject(new Error('non usato in questo test'));
+    const summary: BackupImportSummary = { totalInFile: 1, newCount: 1, alreadyPresentCount: 0, newerThanLocalCount: 0 };
+    return {
+        importReadiness: ref({ state: 'ready', summary, clockSkewWarning: 'non usato in questo test' }),
+        exportBackup: notImplemented,
+        prepareImport: notImplemented,
+        confirmMerge: () => Promise.resolve({ outcome: 'partial', reason }),
+        confirmReplace: notImplemented,
+        cancelImport: () => {}
+    };
+}
+
+function buildStubCatalogSource(): CatalogSource {
+    const notImplemented = (): Promise<never> => Promise.reject(new Error('non usato in questo test'));
+    return {
+        searchShows: notImplemented,
+        loadShow: (): Promise<LoadShowOutcome> => Promise.resolve({ outcome: 'unavailable', reason: 'non usato in questo test' }),
+        loadItalianProviders: notImplemented
     };
 }
 
 vi.mock('@/persistence/currentTrackedShowStore', () => ({ currentTrackedShowStore: buildStubStore([]) }));
+vi.mock('@/catalog/tmdbCatalogSource', () => ({ tmdbCatalogSource: buildStubCatalogSource() }));
 
 const mountedWrappers: Array<VueWrapper> = [];
 
@@ -88,6 +140,17 @@ describe('HomeView — stato vuoto', () => {
     });
 });
 
+describe('HomeView — numero di versione', () => {
+    it('mostra il numero di versione dell\'app in fondo alla pagina', async () => {
+        const { default: HomeView } = await import('./HomeView.vue');
+        const wrapper = mount(HomeView, { global: { plugins: [testRouter] } });
+        mountedWrappers.push(wrapper);
+        await flushPromises();
+
+        expect(wrapper.find('.app-version').text()).toBe(APP_VERSION);
+    });
+});
+
 describe('HomeView — pulsante Aggiorna del sommario', () => {
     it('richiede lo stesso avviso condiviso usato dal pulsante dell\'intestazione', async () => {
         const { default: HomeView } = await import('./HomeView.vue');
@@ -97,8 +160,9 @@ describe('HomeView — pulsante Aggiorna del sommario', () => {
         await flushPromises();
 
         await wrapper.find('.refresh').trigger('click');
+        await flushPromises();
 
-        expect(refreshNotice.message.value).toBe('Aggiornamento dalla rete non ancora disponibile.');
+        expect(refreshNotice.message.value).toBe('Nessuna serie da aggiornare.');
     });
 });
 
@@ -119,5 +183,90 @@ describe('HomeView — elenco delle serie', () => {
         expect(wrapper.find('.empty-state').exists()).toBe(false);
 
         vi.doUnmock('@/persistence/currentTrackedShowStore');
+    });
+});
+
+describe('HomeView — pulsante Aggiorna disabilitato durante l\'aggiornamento', () => {
+    it('disabilita il pulsante mentre l\'aggiornamento è in corso e lo riabilita al termine', async () => {
+        vi.resetModules();
+        let resolvePendingLoad: (outcome: LoadShowOutcome) => void = () => {};
+        const pendingLoad = new Promise<LoadShowOutcome>((resolve) => {
+            resolvePendingLoad = resolve;
+        });
+        vi.doMock('@/persistence/currentTrackedShowStore', () => ({
+            currentTrackedShowStore: buildStubStore([buildShow()])
+        }));
+        vi.doMock('@/catalog/tmdbCatalogSource', () => ({
+            tmdbCatalogSource: {
+                searchShows: (): Promise<never> => Promise.reject(new Error('non usato in questo test')),
+                loadShow: (): Promise<LoadShowOutcome> => pendingLoad,
+                loadItalianProviders: (): Promise<never> => Promise.reject(new Error('non usato in questo test'))
+            } satisfies CatalogSource
+        }));
+
+        const { default: HomeView } = await import('./HomeView.vue');
+        const wrapper = mount(HomeView, { global: { plugins: [testRouter] } });
+        mountedWrappers.push(wrapper);
+        await flushPromises();
+
+        void wrapper.find('.refresh').trigger('click');
+        await flushPromises();
+        expect(wrapper.find('.refresh').attributes('disabled')).toBeDefined();
+
+        resolvePendingLoad({ outcome: 'missing' });
+        await flushPromises();
+        expect(wrapper.find('.refresh').attributes('disabled')).toBeUndefined();
+
+        vi.doUnmock('@/persistence/currentTrackedShowStore');
+        vi.doUnmock('@/catalog/tmdbCatalogSource');
+    });
+});
+
+describe('HomeView — senza rete (criterio 9)', () => {
+    it('mostra la lista e permette di avanzare la posizione anche quando il catalogo remoto non è raggiungibile', async () => {
+        vi.resetModules();
+        const show = buildShow();
+        vi.doMock('@/persistence/currentTrackedShowStore', () => ({
+            currentTrackedShowStore: buildStoreWithAdvanceableProgress(show)
+        }));
+
+        const { default: HomeView } = await import('./HomeView.vue');
+        const wrapper = mount(HomeView, { global: { plugins: [testRouter] } });
+        mountedWrappers.push(wrapper);
+        await flushPromises();
+
+        expect(wrapper.findAll('.show')).toHaveLength(1);
+
+        await wrapper.find('.primary').trigger('click');
+        await flushPromises();
+        await wrapper.find('.accept-confirm').trigger('click');
+        await flushPromises();
+
+        expect(wrapper.text()).toContain('Puntata e precedenti segnate come viste.');
+
+        vi.doUnmock('@/persistence/currentTrackedShowStore');
+    });
+});
+
+describe('HomeView — importazione di backup con esito parziale', () => {
+    it('mostra il motivo dell\'esito parziale invece del messaggio di riuscita piena', async () => {
+        vi.resetModules();
+        const partialReason = 'Sincronizzate 8 serie su 10: le altre verranno riprovate al prossimo tentativo.';
+        vi.doMock('@/composables/useBackup', () => ({
+            useBackup: (): UseBackup => buildBackupStubReadyToMergePartially(partialReason)
+        }));
+
+        const { default: HomeView } = await import('./HomeView.vue');
+        const wrapper = mount(HomeView, { global: { plugins: [testRouter] } });
+        mountedWrappers.push(wrapper);
+        await flushPromises();
+
+        await wrapper.find('.merge').trigger('click');
+        await flushPromises();
+
+        expect(wrapper.text()).toContain(partialReason);
+        expect(wrapper.text()).not.toContain('Backup unito alle serie locali.');
+
+        vi.doUnmock('@/composables/useBackup');
     });
 });

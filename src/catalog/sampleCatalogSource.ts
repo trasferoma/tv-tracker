@@ -181,7 +181,6 @@ function matchesQuery(show: SampleShow, normalizedQuery: string): boolean {
 }
 
 function toSearchResult(show: SampleShow): CatalogSearchResult {
-    const posterUrl = findSeasonOnePoster(show.seasons);
     return {
         catalogProvider: 'tmdb',
         providerShowId: show.providerShowId,
@@ -189,12 +188,8 @@ function toSearchResult(show: SampleShow): CatalogSearchResult {
         originalTitle: show.originalTitle,
         year: show.year,
         status: show.status,
-        posterUrl
+        posterUrl: show.seriesPosterUrl
     };
-}
-
-function findSeasonOnePoster(seasons: readonly Season[]): string | undefined {
-    return seasons.find((season) => season.seasonNumber === 1)?.posterUrl;
 }
 
 function loadShow(providerShowId: string): Promise<LoadShowOutcome> {

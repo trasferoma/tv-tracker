@@ -4,6 +4,8 @@ import { defineComponent, h, ref } from 'vue';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { useTrackedShows, type TrackedShowsDeps, type UseTrackedShows } from './useTrackedShows';
+import { findProfileById } from '@/auth/profiles';
+import { session } from '@/auth/session';
 import type { CatalogSearchResult, CatalogShow, CatalogSource } from '@/catalog/catalogSource';
 import type { ShowSortMode } from '@/domain/showSorting';
 import type { Episode, ItalianProvider, ProgressOutcome, Season, TrackedShow } from '@/domain/trackedShow';
@@ -89,7 +91,9 @@ function buildMemoryStore(initialShows: readonly TrackedShow[] = []): {
             return Promise.resolve(outcome);
         },
         undoLastProgress: () => Promise.resolve({ outcome: 'rejected', reason: 'non implementato nel doppio di test' }),
-        removeShow: () => Promise.resolve({ outcome: 'rejected', reason: 'non implementato nel doppio di test' })
+        removeShow: () => Promise.resolve({ outcome: 'rejected', reason: 'non implementato nel doppio di test' }),
+        listAllProgressEvents: () => Promise.resolve([]),
+        replaceAllShows: () => Promise.reject(new Error('non implementato nel doppio di test'))
     };
 
     return { store, getShows: () => shows };
@@ -156,6 +160,33 @@ describe('useTrackedShows — criterio 5, annullare la conferma non cambia lo st
 
         expect(controller.pendingWatch.value).toBeUndefined();
         expect(getShows()).toEqual([show]);
+    });
+});
+
+describe('useTrackedShows — criterio 14, confirmedBy con l\'identità autenticata', () => {
+    afterEach(() => {
+        session.state.value = { status: 'anonymous' };
+    });
+
+    it('senza forzare l\'identità nei test, la conferma registra il profilo autenticato in sessione', async () => {
+        const irene = findProfileById('irene');
+        if (irene === undefined) {
+            throw new Error('profilo di test mancante');
+        }
+        session.state.value = { status: 'authenticated', profile: irene };
+
+        const show = buildShow({ id: 'show-1' });
+        const { store } = buildMemoryStore([show]);
+        const { controller } = mountTrackedShows('activity', { store, resolveToday: () => TODAY });
+        await flushPromises();
+
+        controller.requestWatch('show-1');
+        const outcome = await controller.confirmPendingWatch();
+
+        if (outcome?.outcome !== 'applied') {
+            throw new Error('avanzamento inatteso rifiutato');
+        }
+        expect(outcome.event.confirmedBy).toBe('irene');
     });
 });
 
@@ -318,7 +349,9 @@ describe('useTrackedShows — sottoscrizione', () => {
             changeProvider: () => Promise.resolve({ outcome: 'changed' }),
             advanceProgress: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato in questo test' }),
             undoLastProgress: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato in questo test' }),
-            removeShow: () => Promise.resolve({ outcome: 'removed' })
+            removeShow: () => Promise.resolve({ outcome: 'removed' }),
+            listAllProgressEvents: () => Promise.resolve([]),
+            replaceAllShows: () => Promise.reject(new Error('non usato in questo test'))
         };
         const { wrapper } = mountTrackedShows('activity', buildDeps({ store }));
         await flushPromises();

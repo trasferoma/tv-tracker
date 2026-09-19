@@ -224,3 +224,45 @@ describe('undoLastProgress', () => {
         expect(events[0]?.undoneBy).toBe('irene');
     });
 });
+
+describe('listAllProgressEvents', () => {
+    it('restituisce gli eventi di tutte le serie, non solo di una', async () => {
+        const first = buildShow({ providerShowId: 'tmdb-first' });
+        const second = buildShow({ providerShowId: 'tmdb-second' });
+        await localTrackedShowStore.addShow(first);
+        await localTrackedShowStore.addShow(second);
+        await localTrackedShowStore.advanceProgress(first.id, 's1e1', 'fabio', TODAY);
+        await localTrackedShowStore.advanceProgress(second.id, 's1e1', 'irene', TODAY);
+
+        const events = await localTrackedShowStore.listAllProgressEvents();
+
+        expect(events.map((event) => event.trackedShowId).sort()).toEqual([first.id, second.id].sort());
+    });
+});
+
+describe('replaceAllShows', () => {
+    it('sostituisce tutte le serie e tutti gli eventi in una sola transazione, dichiarando l\'esito pieno', async () => {
+        const previous = buildShow({ providerShowId: 'tmdb-previous' });
+        await localTrackedShowStore.addShow(previous);
+        const replacement = buildShow({ providerShowId: 'tmdb-replacement' });
+
+        const outcome = await localTrackedShowStore.replaceAllShows([replacement], []);
+
+        expect(outcome).toEqual({ outcome: 'replaced' });
+        const allShows = await tvTrackerDatabase.trackedShows.toArray();
+        expect(allShows).toEqual([replacement]);
+    });
+
+    it('lascia intatti i dati preesistenti se la sostituzione fallisce a metà', async () => {
+        const existing = buildShow({ providerShowId: 'tmdb-existing' });
+        await localTrackedShowStore.addShow(existing);
+        vi.spyOn(tvTrackerDatabase.progressEvents, 'bulkPut').mockRejectedValueOnce(
+            new Error('errore simulato a metà scrittura'));
+
+        await expect(localTrackedShowStore.replaceAllShows([buildShow({ providerShowId: 'tmdb-new' })], []))
+            .rejects.toThrow();
+
+        const allShows = await tvTrackerDatabase.trackedShows.toArray();
+        expect(allShows).toEqual([existing]);
+    });
+});

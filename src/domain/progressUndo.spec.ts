@@ -219,31 +219,31 @@ describe('undoLastProgress', () => {
         expect(outcome.show.lastViewedAt).toBe(firstConfirm.event.confirmedAt);
     });
 
-    it('a parità di confirmedAt, sceglie la conferma da annullare in modo indipendente dall\'ordine degli eventi', () => {
-        const eventWithLowerId = buildEvent({
+    it('a parità di confirmedAt, sceglie la conferma la cui posizione coincide con quella corrente della serie, non quella con l\'id maggiore', () => {
+        const eventMatchingCurrentPosition = buildEvent({
             id: 'event-a',
-            previousEpisodeId: undefined,
-            confirmedEpisodeId: 's1e1',
-            confirmedAt: '2026-01-20T09:00:00.000Z'
-        });
-        const eventWithHigherId = buildEvent({
-            id: 'event-b',
             previousEpisodeId: 's1e1',
             confirmedEpisodeId: 's1e2',
+            confirmedAt: '2026-01-20T09:00:00.000Z'
+        });
+        const eventNotMatchingCurrentPosition = buildEvent({
+            id: 'event-z',
+            previousEpisodeId: undefined,
+            confirmedEpisodeId: 's1e1',
             confirmedAt: '2026-01-20T09:00:00.000Z'
         });
         const show = buildShow([buildSeason(1, 3)], 's1e2', 2);
 
         const outcomeInOrder = undoLastProgress(
             show,
-            [eventWithLowerId, eventWithHigherId],
+            [eventNotMatchingCurrentPosition, eventMatchingCurrentPosition],
             show.progressRevision,
             UNDONE_BY,
             UNDONE_AT
         );
         const outcomeReversed = undoLastProgress(
             show,
-            [eventWithHigherId, eventWithLowerId],
+            [eventMatchingCurrentPosition, eventNotMatchingCurrentPosition],
             show.progressRevision,
             UNDONE_BY,
             UNDONE_AT
@@ -252,8 +252,70 @@ describe('undoLastProgress', () => {
         if (outcomeInOrder.outcome !== 'applied' || outcomeReversed.outcome !== 'applied') {
             throw new Error('undo inatteso rifiutato');
         }
-        expect(outcomeInOrder.event.id).toBe('event-b');
-        expect(outcomeReversed.event.id).toBe('event-b');
+        expect(outcomeInOrder.event.id).toBe('event-a');
+        expect(outcomeReversed.event.id).toBe('event-a');
         expect(outcomeInOrder.show.lastWatchedEpisodeId).toBe('s1e1');
+    });
+
+    it('non sceglie una conferma già annullata anche quando il suo confirmedEpisodeId coincide con la posizione corrente', () => {
+        const undoneConfirmationOfCurrentEpisode = buildEvent({
+            id: 'event-1',
+            previousEpisodeId: undefined,
+            confirmedEpisodeId: 's1e2',
+            confirmedAt: '2026-01-10T00:00:00Z',
+            undoneAt: '2026-01-11T00:00:00Z',
+            undoneBy: 'fabio'
+        });
+        const activeConfirmationOfCurrentEpisode = buildEvent({
+            id: 'event-2',
+            previousEpisodeId: 's1e1',
+            confirmedEpisodeId: 's1e2',
+            confirmedAt: '2026-01-12T00:00:00Z'
+        });
+        const show = buildShow([buildSeason(1, 3)], 's1e2', 2);
+
+        const outcome = undoLastProgress(
+            show,
+            [undoneConfirmationOfCurrentEpisode, activeConfirmationOfCurrentEpisode],
+            show.progressRevision,
+            UNDONE_BY,
+            UNDONE_AT
+        );
+
+        if (outcome.outcome !== 'applied') {
+            throw new Error('undo inatteso rifiutato');
+        }
+        expect(outcome.event.id).toBe('event-2');
+    });
+
+    it('non sceglie la conferma di un\'altra serie anche se condivide l\'id episodio con la posizione corrente', () => {
+        const confirmationOfAnotherShow = buildEvent({
+            id: 'event-other-show',
+            trackedShowId: 'show-2',
+            previousEpisodeId: undefined,
+            confirmedEpisodeId: 's1e1',
+            confirmedAt: '2026-01-05T00:00:00Z'
+        });
+        const confirmationOfThisShow = buildEvent({
+            id: 'event-this-show',
+            trackedShowId: 'show-1',
+            previousEpisodeId: undefined,
+            confirmedEpisodeId: 's1e1',
+            confirmedAt: '2026-01-06T00:00:00Z'
+        });
+        const show = buildShow([buildSeason(1, 3)], 's1e1', 1);
+
+        const outcome = undoLastProgress(
+            show,
+            [confirmationOfAnotherShow, confirmationOfThisShow],
+            show.progressRevision,
+            UNDONE_BY,
+            UNDONE_AT
+        );
+
+        if (outcome.outcome !== 'applied') {
+            throw new Error('undo inatteso rifiutato');
+        }
+        expect(outcome.event.id).toBe('event-this-show');
     });
 });

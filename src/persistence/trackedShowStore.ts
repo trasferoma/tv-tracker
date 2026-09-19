@@ -1,4 +1,4 @@
-import type { ItalianProvider, ProgressOutcome, TrackedShow } from '@/domain/trackedShow';
+import type { ItalianProvider, ProgressEvent, ProgressOutcome, TrackedShow } from '@/domain/trackedShow';
 
 export type Unsubscribe = () => void;
 
@@ -21,6 +21,10 @@ export type RemoveShowOutcome =
     | { readonly outcome: 'removed' }
     | { readonly outcome: 'rejected'; readonly reason: string };
 
+export type ReplaceAllShowsOutcome =
+    | { readonly outcome: 'replaced' }
+    | { readonly outcome: 'partial'; readonly reason: string };
+
 export interface TrackedShowStore {
     subscribeToTrackedShows(listener: TrackedShowsListener): Unsubscribe;
     subscribeToShow(id: string, listener: TrackedShowListener): Unsubscribe;
@@ -34,4 +38,9 @@ export interface TrackedShowStore {
     advanceProgress(id: string, targetEpisodeId: string, confirmedBy: string, today: string): Promise<ProgressOutcome>;
     undoLastProgress(id: string, expectedRevision: number, undoneBy: string): Promise<ProgressOutcome>;
     removeShow(id: string): Promise<RemoveShowOutcome>;
+    listAllProgressEvents(): Promise<readonly ProgressEvent[]>;
+    replaceAllShows(
+        shows: readonly TrackedShow[],
+        progressEvents: readonly ProgressEvent[]
+    ): Promise<ReplaceAllShowsOutcome>;
 }

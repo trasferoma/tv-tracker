@@ -20,6 +20,15 @@ Documento di lavoro: la SPEC (il "cosa") resta stabile; qui vivono stato, piano,
 - Ogni fase lascia il progetto verde: niente fase che rompe typecheck, lint o test.
 - Le cartelle sotto `src/` **non esistono**: vanno create insieme al primo file che le abita.
 
+
+> **Punto di ripresa — 2026-09-19, fine seconda sessione.** Fasi **1–22 chiuse**, **394 test verdi**, lint/typecheck/build puliti. La promessa architetturale ha tenuto: accendere Firestore è costato due file dentro `src/persistence/`, nessuna vista e nessun composable.
+>
+> **Primo lavoro da riprendere — igiene dei test, interrotto a metà.** La suite **dipende dal file `.env.local` dello sviluppatore**, non versionato: su una macchina senza quel file otto test fallirebbero, e cinque di questi — in `useBackup.spec.ts` — tenterebbero **connessioni Firebase reali**, perché `useBackup()` invocata senza dipendenze esplicite ripiega su `currentTrackedShowStore`. Una suite non deve poter uscire in rete né dipendere da una configurazione personale. **Risultato parziale dell_agente interrotto, da riusare:** `useTrackedShows`, `useAddShow`, `useCatalogRefresh` e `useShowDetail` passano tutti uno `store` esplicito; **il solo `useBackup.spec.ts`** non lo fa. Da decidere anche se la suite debba forzare la modalità locale per tutti o permettere al singolo test di scegliere.
+>
+> **Poi:** Fase **23** (regole di sicurezza Firestore, documenti `members/{uid}` per i due `uid` già in `.env.local`, prove negative, e **travaso dei dati locali** via export/import) e Fase **24** (`README` e `CLAUDE.md`). **Attenzione alla Fase 23:** finché le regole non sono pubblicate Firestore rifiuta tutto, quindi `VITE_LOCAL_MODE=true` va lasciata attiva fino a quel momento.
+>
+> **Nota sulla verifica:** la Fase 22 non ha ancora avuto la sua fase di verifica indipendente.
+
 ## Contesto
 
 Il repository `C:\build\git\tv-tracker` contiene oggi **solo** `spec/`, `mockup/` e un `.gitignore`. Niente `package.json`, niente scaffold, **git non inizializzato**. Si parte da zero. Il contesto utile non viene quindi dal codice presente, ma dal progetto gemello e dalle decisioni già prese con l'utente.
@@ -98,6 +107,8 @@ Endpoint TMDB **verificati sul campo** (rispondono `200` con il token v4): `sear
 - SPEC § *Inserimento*: «ogni risultato mostra copertina, titolo, anno e **stato**» e «nei risultati di ricerca viene mostrata la locandina della **stagione 1**» → **non ottenibili dall_endpoint di ricerca di TMDB**, verificato sulla risposta reale: `search/tv` restituisce `poster_path` (locandina generale) e **non** restituisce `status`. Ottenerli richiederebbe una chiamata `tv/{id}` **per ogni risultato**, cioè ~10 chiamate a ogni ricerca con debounce. Decisione: nei risultati si mostra la **locandina generale**, e lo **stato** si mostra al passo successivo, quando la serie è stata scelta e si caricano i dettagli per la piattaforma. La disambiguazione di remake e omonimi — scopo dichiarato dalla SPEC — resta garantita da **anno** e **titolo originale**, entrambi presenti nella risposta di ricerca.
 
 - SPEC § *Home / Serie seguite*: «**Ultima attività** — prima le serie con la conferma «Vista» più recente; quelle mai iniziate vanno in fondo» → **l_inserimento conta come attività**. Il criterio ordina ora per l_ultima cosa successa alla serie: conferma «Vista» **oppure** data di inserimento, quale delle due è più recente. **Motivo:** provando l_app, l_utente si è aspettato di ritrovare in cima una serie appena aggiunta, e il nome dell_opzione prometteva legittimamente questo. Il comportamento precedente era corretto rispetto alla lettera della SPEC ma in contrasto con l_etichetta. Conseguenze: nessuna serie finisce più in fondo per mancanza di attività, perché la data di inserimento esiste sempre; una serie aggiunta tempo fa e mai iniziata si colloca per data di inserimento. Il **criterio di accettazione 12 resta valido** e continua a essere dimostrato. «Inserite di recente» resta distinto, perché ignora le conferme. Etichetta a schermo invariata: ora descrive ciò che fa. Decisione esplicita dell_utente del 2026-09-18, presa fra tre alternative.
+
+- Mockup, `.show` → il pulsante **«•••» sulla card della home non viene implementato**. Nel mockup era decorativo e non faceva nulla. La rimozione di una serie resta disponibile **solo dal dettaglio** («Rimuovi dalla lista», con conferma rossa). Decisione esplicita dell_utente del 2026-09-19, dopo aver verificato che la funzione esiste ed è raggiungibile: «va bene così». Non riaprire in fase di verifica finale.
 
 ### Asse di organizzazione proposto
 
@@ -416,17 +427,17 @@ Nessun contenitore generico (`utils`, `common`, `helpers`, `models`, `services`)
 
 *Obiettivo: le nuove uscite arrivano, la posizione non si muove.*
 
-- [ ] I due pulsanti «Aggiorna» del mockup (intestazione e sommario) ricaricano le serie seguite da TMDB. **Niente pull-to-refresh.**
-- [ ] All'apertura, se l'ultimo controllo è più vecchio della soglia e c'è rete, aggiornamento in background. **Soglia: 12 ore** (vedi *Domande aperte* 1).
-- [ ] Un cambio di titolo, locandina, stato o elenco episodi **aggiorna i dati editoriali senza toccare la posizione**; `catalogUpdatedAt` valorizzato solo sugli aggiornamenti riusciti.
-- [ ] Senza rete: l'app mostra l'ultimo catalogo scaricato e **permette comunque di avanzare la posizione**; il fallimento è dichiarato con un messaggio, non con una schermata bianca.
-- [ ] Indicazione «aggiornata ora / N minuti fa» nell'intestazione, come nel mockup.
-- [ ] Test: criterio 8 (una puntata pubblicata dopo l'ultimo aggiornamento alza il badge senza spostare la posizione), criterio 9 (senza rete lista e dettaglio restano, l'avanzamento è possibile), un episodio rinominato non sposta la posizione, un aggiornamento fallito lascia `catalogUpdatedAt` invariato.
-- [ ] Criterio di completamento osservabile: criteri 8 e 9 verificabili spegnendo la rete dagli strumenti del browser; suite verde.
-- [ ] **Rischio ereditato dalla Fase 3 e segnalata dalla verifica, da non ignorare:** `positionOfEpisode` restituisce `-1` sia per «serie mai iniziata» sia per «episodio non presente nella sequenza». Il chiamante deve distinguere i due casi **a monte**, guardando se `lastWatchedEpisodeId` è assente o è presente ma non trovato: sono rami con esiti opposti. Trattarli come lo stesso valore fa ricomparire tutte le puntate già viste.
-- [ ] **Vincolo ereditato dalla Fase 4:** `calculateWatchPosition` **lancia** se `lastWatchedEpisodeId` è presente ma non compare nella sequenza. La riparazione decisa dall_utente (ripiego sull_episodio precedente ancora esistente, § *Domande aperte* 4) va quindi applicata **nel merge, prima di persistere**: è il merge il garante dell_invariante, non il dominio. Un catalogo aggiornato non deve mai essere scritto lasciando la posizione orfana.
-- [ ] **Punto di cablaggio già pronto:** `src/composables/useRefreshNotice.ts` è il punto unico dove oggi vive il messaggio «aggiornamento non ancora disponibile», condiviso dai due pulsanti «Aggiorna». Qui va sostituito con la chiamata di rete vera. Non aggiungerne un secondo.
-- [ ] **Già fatto in anticipo, alla chiusura della Fase 14:** `src/domain/catalogMerge.ts` esiste e ospita `mergeAnnouncedEpisode`, condivisa da inserimento reale e dati di esempio. Qui va **aggiunta** la fusione del catalogo aggiornato con quello locale, nello stesso file. Non duplicare la funzione già presente.
+- [x] I due pulsanti «Aggiorna» del mockup (intestazione e sommario) ricaricano le serie seguite da TMDB. **Niente pull-to-refresh.**
+- [x] All'apertura, se l'ultimo controllo è più vecchio della soglia e c'è rete, aggiornamento in background. **Soglia: 12 ore** (vedi *Domande aperte* 1).
+- [x] Un cambio di titolo, locandina, stato o elenco episodi **aggiorna i dati editoriali senza toccare la posizione**; `catalogUpdatedAt` valorizzato solo sugli aggiornamenti riusciti.
+- [x] Senza rete: l'app mostra l'ultimo catalogo scaricato e **permette comunque di avanzare la posizione**; il fallimento è dichiarato con un messaggio, non con una schermata bianca.
+- [x] Indicazione «aggiornata ora / N minuti fa» nell'intestazione, come nel mockup.
+- [x] Test: criterio 8 (una puntata pubblicata dopo l'ultimo aggiornamento alza il badge senza spostare la posizione), criterio 9 (senza rete lista e dettaglio restano, l'avanzamento è possibile), un episodio rinominato non sposta la posizione, un aggiornamento fallito lascia `catalogUpdatedAt` invariato.
+- [x] Criterio di completamento osservabile: criteri 8 e 9 verificabili spegnendo la rete dagli strumenti del browser; suite verde.
+- [x] **Rischio ereditato dalla Fase 3 e segnalata dalla verifica, da non ignorare:** `positionOfEpisode` restituisce `-1` sia per «serie mai iniziata» sia per «episodio non presente nella sequenza». Il chiamante deve distinguere i due casi **a monte**, guardando se `lastWatchedEpisodeId` è assente o è presente ma non trovato: sono rami con esiti opposti. Trattarli come lo stesso valore fa ricomparire tutte le puntate già viste.
+- [x] **Vincolo ereditato dalla Fase 4:** `calculateWatchPosition` **lancia** se `lastWatchedEpisodeId` è presente ma non compare nella sequenza. La riparazione decisa dall_utente (ripiego sull_episodio precedente ancora esistente, § *Domande aperte* 4) va quindi applicata **nel merge, prima di persistere**: è il merge il garante dell_invariante, non il dominio. Un catalogo aggiornato non deve mai essere scritto lasciando la posizione orfana.
+- [x] **Punto di cablaggio già pronto:** `src/composables/useRefreshNotice.ts` è il punto unico dove oggi vive il messaggio «aggiornamento non ancora disponibile», condiviso dai due pulsanti «Aggiorna». Qui va sostituito con la chiamata di rete vera. Non aggiungerne un secondo.
+- [x] **Già fatto in anticipo, alla chiusura della Fase 14:** `src/domain/catalogMerge.ts` esiste e ospita `mergeAnnouncedEpisode`, condivisa da inserimento reale e dati di esempio. Qui va **aggiunta** la fusione del catalogo aggiornato con quello locale, nello stesso file. Non duplicare la funzione già presente.
 - **File letti:** `src/catalog/tmdbCatalogSource.ts`, `src/persistence/trackedShowStore.ts`.
 - **File modificati:** `src/components/shell/AppTopBar.vue`, `src/views/HomeView.vue`.
 - **File da creare:**
@@ -438,13 +449,14 @@ Nessun contenitore generico (`utils`, `common`, `helpers`, `models`, `services`)
 
 *Obiettivo: installabile e utilizzabile offline dopo un accesso riuscito.*
 
-- [ ] Manifest con nome, nome breve, descrizione, `lang: 'it'`, `display: standalone`, colori coerenti con i token.
-- [ ] Icone 192, 512 e maskable 512, più `apple-touch-icon` e favicon, generate senza aggiungere dipendenze.
-- [ ] Service worker con precache degli asset applicativi; **nessuna cache manuale di IndexedDB**.
-- [ ] `registerType: 'prompt'` con barra di aggiornamento **discreta e ignorabile**.
-- [ ] `/api/tmdb/*` **escluso** dal precache e mai servito dalla cache: è rete, non asset.
-- [ ] Verifica su `npm run build` + `npm run preview`: manifest corretto, precache popolato, avvio offline, aggiornamento proposto e non imposto. Installazione reale su telefono resta all'utente.
-- [ ] Criterio di completamento osservabile: `dist/manifest.webmanifest` e `dist/sw.js` presenti e ispezionati; app avviabile offline dopo un primo caricamento.
+- [x] Manifest con nome, nome breve, descrizione, `lang: 'it'`, `display: standalone`, colori coerenti con i token.
+- [x] Icone 192, 512 e maskable 512, più `apple-touch-icon` e favicon, generate senza aggiungere dipendenze.
+- [x] Service worker con precache degli asset applicativi; **nessuna cache manuale di IndexedDB**.
+- [x] `registerType: 'prompt'` con barra di aggiornamento **discreta e ignorabile**.
+- [x] `/api/tmdb/*` **escluso** dal precache e mai servito dalla cache: è rete, non asset.
+- [x] Verifica su `npm run build` + `npm run preview`: manifest corretto, precache popolato, avvio offline, aggiornamento proposto e non imposto. Installazione reale su telefono resta all'utente.
+- [x] Criterio di completamento osservabile: `dist/manifest.webmanifest` e `dist/sw.js` presenti e ispezionati; app avviabile offline dopo un primo caricamento.
+- [x] **Segnalazione dalla verifica della Fase 16:** `useCatalogRefresh.isRefreshing` esiste ma **non è letto da nessun componente**. Premendo «Aggiorna» con rete lenta non si vede nulla finché non finisce. Cablalo: pulsante disabilitato o indicatore di attività durante l_aggiornamento.
 - **File letti:** `gym-tracker/vite.config.ts`, SPEC § *Requisiti non funzionali*.
 - **File modificati:** `vite.config.ts`, `index.html`, `src/App.vue`.
 - **File da creare** — cartella `public/` **nuova**: `public/pwa-192.png`, `pwa-512.png`, `pwa-maskable-512.png`, `apple-touch-icon.png`, `favicon.png` — asset statici serviti così come sono, `public/` è la sede prevista da Vite; `src/composables/usePwaUpdate.ts` — stato dell'aggiornamento, isolato dal componente che lo mostra; `src/components/shell/UpdateBar.vue` — la barra è parte della shell.
@@ -453,14 +465,14 @@ Nessun contenitore generico (`utils`, `common`, `helpers`, `models`, `services`)
 
 *Obiettivo: i dati inseriti in modalità locale non si perdono nel passaggio all'online.*
 
-- [ ] Formato con `formatVersion: 1`, istante di esportazione, elenco delle serie **con stagioni, episodi ed eventi**; nome file `tv-tracker-backup-YYYY-MM-DD.json`.
-- [ ] Validazione **integrale prima di qualunque scrittura**: versione, struttura, tipi, date `YYYY-MM-DD`, coerenza fra `lastWatchedEpisodeId` e gli episodi presenti.
-- [ ] Riepilogo dell'importazione: totale nel file, nuove, già presenti, più recenti del locale.
-- [ ] Unione per `id` con `updatedAt` più recente, **unità di merge la serie intera**; sostituzione completa in **una transazione**, previa conferma.
-- [ ] L'import passa dal **contratto** `TrackedShowStore`, non da Dexie: così in Fase 23 lo stesso file si riversa su Firestore senza riscrivere nulla.
-- [ ] Test: file valido importato, file con versione ignota respinto, file troncato respinto **senza toccare il database**, merge che conserva la copia più recente, sostituzione completa atomica su fallimento a metà.
-- [ ] Criterio di completamento osservabile: esportazione e reimportazione dello stesso file lasciano lo stato identico; suite verde.
-- [ ] **Segnalazione dalla verifica della Fase 7:** il merge dei backup sceglie quale copia tenere confrontando `updatedAt`, che oggi è assegnato dal **dispositivo**. Due telefoni con orologi sfasati possono quindi far vincere la copia sbagliata. Decidere qui se `updatedAt` vada assegnato dallo store come `confirmedAt`, o se il merge debba usare un criterio meno fragile dell_orologio.
+- [x] Formato con `formatVersion: 1`, istante di esportazione, elenco delle serie **con stagioni, episodi ed eventi**; nome file `tv-tracker-backup-YYYY-MM-DD.json`.
+- [x] Validazione **integrale prima di qualunque scrittura**: versione, struttura, tipi, date `YYYY-MM-DD`, coerenza fra `lastWatchedEpisodeId` e gli episodi presenti.
+- [x] Riepilogo dell'importazione: totale nel file, nuove, già presenti, più recenti del locale.
+- [x] Unione per `id` con `updatedAt` più recente, **unità di merge la serie intera**; sostituzione completa in **una transazione**, previa conferma.
+- [x] L'import passa dal **contratto** `TrackedShowStore`, non da Dexie: così in Fase 23 lo stesso file si riversa su Firestore senza riscrivere nulla.
+- [x] Test: file valido importato, file con versione ignota respinto, file troncato respinto **senza toccare il database**, merge che conserva la copia più recente, sostituzione completa atomica su fallimento a metà.
+- [x] Criterio di completamento osservabile: esportazione e reimportazione dello stesso file lasciano lo stato identico; suite verde.
+- [x] **Segnalazione dalla verifica della Fase 7:** il merge dei backup sceglie quale copia tenere confrontando `updatedAt`, che oggi è assegnato dal **dispositivo**. Due telefoni con orologi sfasati possono quindi far vincere la copia sbagliata. Decidere qui se `updatedAt` vada assegnato dallo store come `confirmedAt`, o se il merge debba usare un criterio meno fragile dell_orologio.
 - **File letti:** `src/persistence/trackedShowStore.ts`, `src/domain/trackedShow.ts`.
 - **File modificati:** `src/views/HomeView.vue` (accesso ai comandi di backup).
 - **File da creare** — cartella `src/backup/` **nuova**:
@@ -475,12 +487,13 @@ Nessun contenitore generico (`utils`, `common`, `helpers`, `models`, `services`)
 
 *Obiettivo: chiudere l'MVP locale con la matrice criterio → test compilata.*
 
-- [ ] Matrice criterio → test per i criteri **1–12** della SPEC; i criteri **13–14** sono coperti in modalità locale e **ricontrollati** dopo la Fase 21.
-- [ ] Il criterio **10** (due aggiornamenti da dispositivi diversi non vengono persi) è verificabile in modalità locale **solo** a livello di revisione ed eventi, non di sincronizzazione reale: la verifica completa è in Fase 22. Dichiararlo, non spuntarlo a metà.
-- [ ] Nessun test dipendente dall'ora o dal fuso della macchina: la data odierna entra sempre come parametro.
-- [ ] `npm run lint`, `npm run typecheck`, `npm test`, `npm run build` tutti verdi.
-- [ ] Verifiche architetturali per grep: zero `dexie` fuori da `src/persistence/`, zero colori fuori dai token, zero import di `src/catalog/` o `src/persistence/` dentro `src/components/` e `src/views/`, `mockup/` intatto e assente da `dist/`.
-- [ ] Criterio di completamento osservabile: matrice compilata e quattro comandi verdi; l'app è usabile a mano dall'inizio alla fine sul telefono, in locale.
+- [x] Matrice criterio → test per i criteri **1–12** della SPEC; i criteri **13–14** sono coperti in modalità locale e **ricontrollati** dopo la Fase 21.
+- [x] Il criterio **10** (due aggiornamenti da dispositivi diversi non vengono persi) è verificabile in modalità locale **solo** a livello di revisione ed eventi, non di sincronizzazione reale: la verifica completa è in Fase 22. Dichiararlo, non spuntarlo a metà.
+- [x] Nessun test dipendente dall'ora o dal fuso della macchina: la data odierna entra sempre come parametro.
+- [x] `npm run lint`, `npm run typecheck`, `npm test`, `npm run build` tutti verdi.
+- [x] Verifiche architetturali per grep: zero `dexie` fuori da `src/persistence/`, zero colori fuori dai token, zero import di `src/catalog/` o `src/persistence/` dentro `src/components/` e `src/views/`, `mockup/` intatto e assente da `dist/`.
+- [x] Criterio di completamento osservabile: matrice compilata e quattro comandi verdi; l'app è usabile a mano dall'inizio alla fine sul telefono, in locale.
+- [x] **Buco strutturale trovato dalla verifica della Fase 17, da chiudere qui.** `vite.config.ts` **non è importato da alcun test**: due mutazioni reali sono sopravvissute con la suite tutta verde — mettere in cache `/api/tmdb` (dati vecchi serviti come nuovi) e togliere l_icona `maskable` dal manifest. Oggi quei requisiti sono protetti **solo dall_ispezione a mano** di `dist/sw.js` e `dist/manifest.webmanifest`. Aggiungi un **controllo automatico dopo il build** — sul modello di `scripts/check-node-version.mjs`, che già si aggancia a `npm run build` — che verifichi sugli artefatti generati almeno: `/api/tmdb` servito in sola rete e mai da cache; presenza delle icone dichiarate, `maskable` inclusa; esclusione del ripiego di navigazione sul percorso del proxy; token TMDB assente dal bundle; **coerenza della configurazione**: il build deve avere o la configurazione Firebase completa o `VITE_LOCAL_MODE=true`, mai nessuna delle due (conseguenza dell_attivazione solo esplicita decisa il 2026-09-19). Deve **fallire il build**, non stampare un avviso.
 - **File letti:** tutti i `*.spec.ts` creati, `tv-tracker-spec.md`.
 - **File modificati:** i `*.spec.ts` scoperti rispetto alla matrice.
 - **File da creare:** eventuali `src/**/*.spec.ts` mancanti.
@@ -489,11 +502,11 @@ Nessun contenitore generico (`utils`, `common`, `helpers`, `models`, `services`)
 
 *Obiettivo: esistere su Firebase prima di scriverne il codice.*
 
-- [ ] **Passo dell'utente**: creare il progetto Firebase, abilitare Authentication Email/Password, creare i due account (Fabio e Irene) e annotare le password **fuori dal repository**.
-- [ ] **Passo dell'utente**: creare il database Cloud Firestore e scegliere la regione.
-- [ ] Fissare l'unico `householdId` condiviso e i due `uid`; registrarli in `.env.local`, mai in un file versionato.
-- [ ] Fissare la versione dell'SDK `firebase` e verificare i limiti correnti del piano gratuito.
-- [ ] Criterio di completamento osservabile: due account che accedono davvero dalla console Firebase; nessun file di progetto modificato.
+- [x] **Passo dell'utente**: creare il progetto Firebase, abilitare Authentication Email/Password, creare i due account (Fabio e Irene) e annotare le password **fuori dal repository**.
+- [x] **Passo dell'utente**: creare il database Cloud Firestore e scegliere la regione.
+- [x] Fissare l'unico `householdId` condiviso e i due `uid`; registrarli in `.env.local`, mai in un file versionato.
+- [x] Fissare la versione dell'SDK `firebase` e verificare i limiti correnti del piano gratuito.
+- [x] Criterio di completamento osservabile: due account che accedono davvero dalla console Firebase; nessun file di progetto modificato.
 - **File letti:** SPEC § *Soluzione: Firebase Cloud Firestore*.
 - **File modificati:** `.env.local.example` (nomi delle nuove variabili, senza valori).
 - **File da creare:** nessuno. **Questa fase non produce codice.**
@@ -502,14 +515,14 @@ Nessun contenitore generico (`utils`, `common`, `helpers`, `models`, `services`)
 
 *Obiettivo: sostituire il controllo, non la schermata.*
 
-- [ ] Implementazione Firebase del contratto `credentialCheck`: `signInWithEmailAndPassword` sull'identificativo tecnico associato al profilo scelto.
-- [ ] La schermata di login **non cambia**: cambiano il modulo di verifica e la riga che lo sceglie.
-- [ ] Sessione persistente sul dispositivo fino al logout o alla scadenza di Firebase; `confirmedBy`/`undoneBy` passano dall'`uid` autenticato mantenendo `fabio`/`irene` come identificativi leggibili.
-- [ ] Errori di autenticazione tradotti in messaggi italiani comprensibili, senza esporre i codici di Firebase.
-- [ ] Il banner di modalità locale sparisce **solo** quando entrambe le implementazioni online sono attive.
-- [ ] Test: mappatura degli errori di Firebase sui messaggi italiani, con l'SDK sostituito da un doppio; criteri **13** e **14** rieseguiti.
-- [ ] Criterio di completamento osservabile: login reale con gli account veri; `src/views/LoginView.vue` **non compare** fra i file modificati della fase. Se compare, il contratto della Fase 8 era sbagliato e va detto.
-- [ ] **Vincolo ereditato dalla Fase 8:** questa fase **rimuove** `ActiveProfileStorage` e la persistenza del profilo su `localStorage`, sostituita dalla persistenza nativa di Firebase Authentication. Non devono restare due meccanismi in parallelo. Il ripristino della sessione è già a forma asincrona con tre stati (`restoring` | `authenticated` | `anonymous`) dalla Fase 8, quindi `LoginView.vue` e la navigazione **non** vanno toccate: se lo fossero, la fase si ferma e lo dichiara.
+- [x] Implementazione Firebase del contratto `credentialCheck`: `signInWithEmailAndPassword` sull'identificativo tecnico associato al profilo scelto.
+- [x] La schermata di login **non cambia**: cambiano il modulo di verifica e la riga che lo sceglie.
+- [x] Sessione persistente sul dispositivo fino al logout o alla scadenza di Firebase; `confirmedBy`/`undoneBy` passano dall'`uid` autenticato mantenendo `fabio`/`irene` come identificativi leggibili.
+- [x] Errori di autenticazione tradotti in messaggi italiani comprensibili, senza esporre i codici di Firebase.
+- [x] Il banner di modalità locale sparisce **solo** quando entrambe le implementazioni online sono attive.
+- [x] Test: mappatura degli errori di Firebase sui messaggi italiani, con l'SDK sostituito da un doppio; criteri **13** e **14** rieseguiti.
+- [x] Criterio di completamento osservabile: login reale con gli account veri; `src/views/LoginView.vue` **non compare** fra i file modificati della fase. Se compare, il contratto della Fase 8 era sbagliato e va detto.
+- [x] **Regola cambiata dall_utente il 2026-09-19 — la modalità locale NON si elimina, si conserva.** L_accesso locale (`localCredentialCheck`, `ActiveProfileStorage`) **resta nel progetto** come modalità alternativa per gli sviluppi futuri, **non** viene rimosso. Il vincolo di prima («non devono restare due meccanismi in parallelo») resta valido ma cambia forma: i due meccanismi non devono essere **contemporaneamente attivi**, e la scelta fra loro passa dallo **stesso segnale unico** `isLocalMode`, mai da una seconda condizione. Due sessioni attive insieme restano vietate; due implementazioni mutuamente esclusive sono una scelta legittima. Il ripristino della sessione è già a forma asincrona con tre stati (`restoring` | `authenticated` | `anonymous`) dalla Fase 8, quindi `LoginView.vue` e la navigazione **non** vanno toccate: se lo fossero, la fase si ferma e lo dichiara.
 - **File letti:** `src/auth/*`.
 - **File modificati:** `src/auth/session.ts` (sola scelta dell'implementazione), `package.json` (dipendenza `firebase`).
 - **File da creare:**
@@ -521,13 +534,17 @@ Nessun contenitore generico (`utils`, `common`, `helpers`, `models`, `services`)
 
 *Obiettivo: la prova che il confine della Fase 7 era progettato bene.*
 
-- [ ] Implementazione Firestore del contratto `TrackedShowStore`: `onSnapshot` al posto di `liveQuery`, struttura `households/{householdId}/trackedShows/{id}/progressEvents/{eventId}` come da SPEC.
-- [ ] Cache persistente web abilitata: letture e scritture offline, riallineamento al ritorno della rete.
-- [ ] Avanzamento e undo in **transazione**, con controllo della revisione: fra due avanzamenti concorrenti prevale la posizione **più avanzata**; l'undo è l'unica operazione autorizzata ad andare indietro e prevale solo se annulla l'ultima conferma ancora attiva.
-- [ ] `confirmedAt` assegnato dal server, come richiede la SPEC.
-- [ ] Attivazione con **la sola riga** di `currentTrackedShowStore.ts`. **Se per farlo funzionare serve toccare composable o viste, fermarsi e registrarlo**: è il requisito esplicito dell'utente e il metro di questa fase.
-- [ ] Test: criterio **10** con l'emulatore Firestore o con un doppio del contratto — due avanzamenti concorrenti, il più avanzato vince; un undo obsoleto viene rifiutato.
-- [ ] Criterio di completamento osservabile: la lista è condivisa fra due browser diversi. Fuori da `src/persistence/` l'unica modifica ammessa è il **valore** di `src/localMode.ts` (da costante a valore derivato dalla configurazione Firebase presente): il banner e ogni altro lettore continuano a leggere lo stesso booleano senza cambiare forma. **Nessun composable e nessuna vista fra i file modificati** — inclusa `LocalModeBanner.vue`, che non va toccata perché la sua condizione di visibilità legge già `isLocalMode`. Se una vista o un composable compare fra i modificati, la fase si ferma e lo dichiara.
+- [x] Implementazione Firestore del contratto `TrackedShowStore`: `onSnapshot` al posto di `liveQuery`, struttura `households/{householdId}/trackedShows/{id}/progressEvents/{eventId}` come da SPEC.
+- [x] Cache persistente web abilitata: letture e scritture offline, riallineamento al ritorno della rete.
+- [x] Avanzamento e undo in **transazione**, con controllo della revisione: fra due avanzamenti concorrenti prevale la posizione **più avanzata**; l'undo è l'unica operazione autorizzata ad andare indietro e prevale solo se annulla l'ultima conferma ancora attiva.
+- [x] `confirmedAt` assegnato dal server, come richiede la SPEC.
+- [x] Attivazione con **la sola riga** di `currentTrackedShowStore.ts`. **Se per farlo funzionare serve toccare composable o viste, fermarsi e registrarlo**: è il requisito esplicito dell'utente e il metro di questa fase.
+- [x] Test: criterio **10** con l'emulatore Firestore o con un doppio del contratto — due avanzamenti concorrenti, il più avanzato vince; un undo obsoleto viene rifiutato.
+- [x] Criterio di completamento osservabile: la lista è condivisa fra due browser diversi. Fuori da `src/persistence/` l'unica modifica ammessa è il **valore** di `src/localMode.ts` (da costante a valore derivato dalla configurazione Firebase presente): il banner e ogni altro lettore continuano a leggere lo stesso booleano senza cambiare forma. **Nessun composable e nessuna vista fra i file modificati** — inclusa `LocalModeBanner.vue`, che non va toccata perché la sua condizione di visibilità legge già `isLocalMode`. Se una vista o un composable compare fra i modificati, la fase si ferma e lo dichiara.
+- [x] **Attivazione della modalità locale, decisa dall_utente: SOLO ESPLICITA.** `src/localMode.ts` legge `VITE_LOCAL_MODE`: accesa **solo** se vale `true`, mai dedotta dall_assenza della configurazione Firebase. Conseguenza accettata consapevolmente: senza configurazione Firebase **e** senza quella variabile l_app non funziona, invece di ripiegare in silenzio. Serve quindi un **fallimento comprensibile all_avvio** («configurazione mancante»), non un errore oscuro. Quando la modalità locale è **spenta**, di lei non deve comparire nulla a schermo; quando è **accesa**, il banner «dati non condivisi» resta obbligatorio.
+- [x] **GIÀ DECISO E IMPLEMENTATO il 2026-09-19.** `replaceAllShows` restituisce ora un **esito discriminato** `replaced` / `partial` con motivo in italiano, invece di `Promise<void>`. Scelta dell_utente fra tre alternative, presa su fatti verificati sulla documentazione ufficiale Firestore (niente svuotamento di collezione, sottocollezioni non cancellate col padre, «ogni blocco è atomico ma l_operazione su più blocchi non lo è», tetto ~500 operazioni / 10 MiB). **L_implementazione Firestore deve usare quell_esito per dichiarare onestamente un fallimento parziale**, mai restituire `replaced` quando ha scritto a metà.
+- [x] **GIÀ IMPLEMENTATO il 2026-09-19.** `listProgressEvents(trackedShowId)` è stato sostituito da `listAllProgressEvents()`: su Firestore va realizzato con **una sola query di gruppo** sulla sottocollezione, non con una query per serie.
+- [x] **Precisazione del 2026-09-19, dopo verifica sul codice:** il rischio di sostituzione non atomica riguarda **entrambe le strade dell_importazione**, non solo «Sostituisci tutto». Anche l_**unione** passa da `replaceAllShows`: calcola l_insieme fuso e riscrive tutto. Perimetro reale del rischio: **import da file con Firestore attivo e lista già popolata** (cancellazioni + scritture oltre il limite di un blocco). **Nessun rischio** per l_import in modalità locale (Dexie è atomico) né per il travaso della Fase 23 (destinazione vuota, sole scritture).
 - **File letti:** `src/persistence/trackedShowStore.ts`, `localTrackedShowStore.ts`, SPEC § *Struttura Firestore*.
 - **File modificati:** `src/persistence/currentTrackedShowStore.ts` (la riga di scelta), `src/localMode.ts` (il valore del segnale, non la sua forma). **Non** `LocalModeBanner.vue`: legge già il segnale.
 - **File da creare:**

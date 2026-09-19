@@ -1,10 +1,40 @@
 // @vitest-environment jsdom
-import { mount, type VueWrapper } from '@vue/test-utils';
-import { afterEach, describe, expect, it } from 'vitest';
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createRouter, createWebHistory } from 'vue-router';
 
 import App from './App.vue';
 import { refreshNotice } from '@/composables/useRefreshNotice';
+import type {
+    AddShowOutcome,
+    TrackedShowListener,
+    TrackedShowsListener,
+    TrackedShowStore
+} from '@/persistence/trackedShowStore';
+
+function buildEmptyStore(): TrackedShowStore {
+    const notImplemented = (): Promise<never> => Promise.reject(new Error('non usato in questo test'));
+    return {
+        subscribeToTrackedShows: (listener: TrackedShowsListener) => {
+            listener([]);
+            return () => {};
+        },
+        subscribeToShow: (_id: string, listener: TrackedShowListener) => {
+            listener(undefined);
+            return () => {};
+        },
+        addShow: (): Promise<AddShowOutcome> => Promise.resolve({ outcome: 'added' }),
+        updateCatalog: notImplemented,
+        changeProvider: notImplemented,
+        advanceProgress: notImplemented,
+        undoLastProgress: notImplemented,
+        removeShow: notImplemented,
+        listAllProgressEvents: notImplemented,
+        replaceAllShows: notImplemented
+    };
+}
+
+vi.mock('@/persistence/currentTrackedShowStore', () => ({ currentTrackedShowStore: buildEmptyStore() }));
 
 const testRouter = createRouter({
     history: createWebHistory(),
@@ -28,7 +58,8 @@ describe('App — pulsante Aggiorna dell\'intestazione', () => {
         mountedWrappers.push(wrapper);
 
         await wrapper.find('[aria-label="Aggiorna"]').trigger('click');
+        await flushPromises();
 
-        expect(wrapper.text()).toContain('Aggiornamento dalla rete non ancora disponibile.');
+        expect(wrapper.text()).toContain('Nessuna serie da aggiornare.');
     });
 });

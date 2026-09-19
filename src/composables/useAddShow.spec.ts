@@ -80,6 +80,8 @@ function buildStore(overrides: Partial<TrackedShowStore> = {}): TrackedShowStore
         advanceProgress: notImplemented,
         undoLastProgress: notImplemented,
         removeShow: notImplemented,
+        listAllProgressEvents: notImplemented,
+        replaceAllShows: notImplemented,
         ...overrides
     };
 }

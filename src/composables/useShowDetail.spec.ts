@@ -4,6 +4,8 @@ import { defineComponent, h, ref } from 'vue';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { useShowDetail, type ShowDetailContent, type ShowDetailDeps, type UseShowDetail } from './useShowDetail';
+import { findProfileById } from '@/auth/profiles';
+import { session } from '@/auth/session';
 import type { Episode, ProgressEvent, ProgressOutcome, Season, TrackedShow } from '@/domain/trackedShow';
 import { advanceProgress } from '@/domain/progressAdvance';
 import { undoLastProgress } from '@/domain/progressUndo';
@@ -132,7 +134,9 @@ function buildFakeStore(initialShow: TrackedShow | undefined, initialEvents: rea
             events = [];
             notify();
             return Promise.resolve({ outcome: 'removed' });
-        }
+        },
+        listAllProgressEvents: (): Promise<readonly ProgressEvent[]> => Promise.resolve(events),
+        replaceAllShows: () => Promise.reject(new Error('non implementato nel doppio di test'))
     };
 
     return { store, getShow: () => show, getEvents: () => events };
@@ -280,6 +284,36 @@ describe('useShowDetail — criterio 6, l\'undo ripristina esattamente posizione
     });
 });
 
+describe('useShowDetail — criterio 14, confirmedBy e undoneBy con l\'identità autenticata', () => {
+    afterEach(() => {
+        session.state.value = { status: 'anonymous' };
+    });
+
+    it('senza forzare l\'identità nei test, la conferma e l\'undo registrano il profilo autenticato in sessione', async () => {
+        const irene = findProfileById('irene');
+        if (irene === undefined) {
+            throw new Error('profilo di test mancante');
+        }
+        session.state.value = { status: 'authenticated', profile: irene };
+
+        const { store } = buildFakeStore(buildTwoSeasonShow());
+        const { controller } = mountShowDetail('show-1', { store, resolveToday: () => TODAY, resolveNow: () => '2026-01-20T10:00:00Z' });
+        await flushPromises();
+
+        controller.requestWatch('s2e1');
+        const watchOutcome = await controller.confirmPendingWatch();
+        await flushPromises();
+        controller.requestUndo();
+        const undoOutcome = await controller.confirmPendingUndo();
+
+        if (watchOutcome?.outcome !== 'applied' || undoOutcome?.outcome !== 'applied') {
+            throw new Error('avanzamento o undo inatteso rifiutato');
+        }
+        expect(watchOutcome.event.confirmedBy).toBe('irene');
+        expect(undoOutcome.event.undoneBy).toBe('irene');
+    });
+});
+
 describe('useShowDetail — conflitto di revisione sull\'undo', () => {
     it('mostra il motivo del rifiuto senza perdere lo stato locale della serie', async () => {
         const show = buildTwoSeasonShow({ lastWatchedEpisodeId: 's2e1', lastViewedAt: '2026-01-15T00:00:00Z', progressRevision: 3 });
@@ -295,7 +329,9 @@ describe('useShowDetail — conflitto di revisione sull\'undo', () => {
             changeProvider: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
             advanceProgress: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
             undoLastProgress: () => Promise.resolve({ outcome: 'rejected', reason: conflictReason }),
-            removeShow: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' })
+            removeShow: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
+            listAllProgressEvents: () => Promise.resolve([]),
+            replaceAllShows: () => Promise.reject(new Error('non usato'))
         };
         const { controller } = mountShowDetail(show.id, buildDeps({ store }));
         await flushPromises();
@@ -436,7 +472,9 @@ describe('useShowDetail — sottoscrizione', () => {
             changeProvider: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
             advanceProgress: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
             undoLastProgress: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
-            removeShow: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' })
+            removeShow: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
+            listAllProgressEvents: () => Promise.resolve([]),
+            replaceAllShows: () => Promise.reject(new Error('non usato'))
         };
         const { wrapper } = mountShowDetail('show-1', buildDeps({ store }));
         await flushPromises();

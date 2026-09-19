@@ -5,6 +5,7 @@ import { useRoute } from 'vue-router';
 import ToastMessage from '@/components/feedback/ToastMessage.vue';
 import AppTopBar from '@/components/shell/AppTopBar.vue';
 import LocalModeBanner from '@/components/shell/LocalModeBanner.vue';
+import UpdateBar from '@/components/shell/UpdateBar.vue';
 import { useRefreshNotice } from '@/composables/useRefreshNotice';
 
 const route = useRoute();
@@ -29,6 +30,7 @@ const refreshNotice = useRefreshNotice();
       </main>
     </div>
     <RouterView v-else />
+    <UpdateBar />
   </div>
 </template>
 

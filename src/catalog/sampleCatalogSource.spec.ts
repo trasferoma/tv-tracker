@@ -73,13 +73,13 @@ describe('sampleCatalogSource.searchShows', () => {
         expect(result?.providerShowId).toBe('95396');
     });
 
-    it('mostra nei risultati di ricerca la locandina della stagione 1, non quella generale della serie', async () => {
+    it('mostra nei risultati di ricerca la locandina generale della serie, come TMDB (deviazione dalla SPEC)', async () => {
         const result = await loadSingleResult('the bear');
         const show = await loadFoundShow(result!.providerShowId);
         const seasonOnePoster = show.seasons.find((season) => season.seasonNumber === 1)?.posterUrl;
 
-        expect(result?.posterUrl).toBe(seasonOnePoster);
-        expect(result?.posterUrl).not.toBe(show.seriesPosterUrl);
+        expect(result?.posterUrl).toBe(show.seriesPosterUrl);
+        expect(result?.posterUrl).not.toBe(seasonOnePoster);
     });
 });
 

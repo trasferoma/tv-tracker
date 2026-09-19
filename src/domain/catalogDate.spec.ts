@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { compareCatalogDates, isAlreadyPublished, toCatalogDate } from './catalogDate';
+import { compareCatalogDates, isAlreadyPublished, isValidCatalogDate, toCatalogDate } from './catalogDate';
 
 describe('toCatalogDate', () => {
     beforeEach(() => {
@@ -62,5 +62,21 @@ describe('isAlreadyPublished', () => {
 
     it('non considera già pubblicato un episodio senza airDate', () => {
         expect(isAlreadyPublished(undefined, '2026-01-15')).toBe(false);
+    });
+});
+
+describe('isValidCatalogDate', () => {
+    it('accetta una data catalogo valida', () => {
+        expect(isValidCatalogDate('2026-01-15')).toBe(true);
+    });
+
+    it('rifiuta un formato diverso da YYYY-MM-DD', () => {
+        expect(isValidCatalogDate('15-01-2026')).toBe(false);
+        expect(isValidCatalogDate('2026-1-15')).toBe(false);
+        expect(isValidCatalogDate('non una data')).toBe(false);
+    });
+
+    it('rifiuta una data di calendario inesistente', () => {
+        expect(isValidCatalogDate('2026-02-30')).toBe(false);
     });
 });

@@ -100,7 +100,9 @@ function buildFakeStore(initialShow: TrackedShow | undefined): {
             events = [];
             notify();
             return Promise.resolve({ outcome: 'removed' });
-        }
+        },
+        listAllProgressEvents: (): Promise<readonly ProgressEvent[]> => Promise.resolve(events),
+        replaceAllShows: () => Promise.reject(new Error('non usato'))
     };
 
     return { store, getShow: () => show };
@@ -218,7 +220,9 @@ describe('ShowDetailView — conflitto di revisione sull\'undo', () => {
             changeProvider: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
             advanceProgress: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
             undoLastProgress: () => Promise.resolve({ outcome: 'rejected', reason: conflictReason }),
-            removeShow: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' })
+            removeShow: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
+            listAllProgressEvents: () => Promise.resolve([]),
+            replaceAllShows: () => Promise.reject(new Error('non usato'))
         };
         const wrapper = mountShowDetailView(buildDeps({ store }));
         await flushPromises();

@@ -555,12 +555,12 @@ Nessun contenitore generico (`utils`, `common`, `helpers`, `models`, `services`)
 
 *Obiettivo: accesso ai soli membri del nucleo, e nessun dato perso nel passaggio.*
 
-- [ ] Regole Firestore: accesso consentito **solo** se `request.auth.uid` esiste in `households/{householdId}/members`; nessuna scrittura anonima; eventi scrivibili solo insieme alla serie a cui appartengono.
-- [ ] Documento `members/{uid}` creato per i due account; `appMeta/config` inizializzato.
-- [ ] Prova **negativa**: un utente autenticato ma non membro riceve un rifiuto; un utente non autenticato riceve un rifiuto.
-- [ ] Travaso: export JSON dei dati locali (Fase 18) e reimportazione con l'implementazione Firestore attiva. Il file è lo stesso, l'import passa dal contratto.
-- [ ] Verifica che i dati travasati siano visibili da entrambi i dispositivi e che le posizioni siano identiche.
-- [ ] Criterio di completamento osservabile: regole pubblicate, prove negative superate, dati locali presenti online.
+- [x] Regole Firestore: accesso consentito **solo** se `request.auth.uid` esiste in `households/{householdId}/members`; nessuna scrittura anonima; eventi scrivibili solo insieme alla serie a cui appartengono.
+- [x] Documento `members/{uid}` creato per i due account; `appMeta/config` inizializzato.
+- [x] Prova **negativa**: un utente autenticato ma non membro riceve un rifiuto; un utente non autenticato riceve un rifiuto.
+- [x] Travaso: export JSON dei dati locali (Fase 18) e reimportazione con l'implementazione Firestore attiva. Il file è lo stesso, l'import passa dal contratto.
+- [x] Verifica che i dati travasati siano visibili da entrambi i dispositivi e che le posizioni siano identiche.
+- [x] Criterio di completamento osservabile: regole pubblicate, prove negative superate, dati locali presenti online.
 - **File letti:** `src/backup/*`, SPEC § *Struttura Firestore*.
 - **File modificati:** nessuno sotto `src/`.
 - **File da creare:**

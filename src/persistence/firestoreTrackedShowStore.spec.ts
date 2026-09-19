@@ -314,6 +314,64 @@ describe('firestoreTrackedShowStore', () => {
         });
     });
 
+    describe('updateCatalog', () => {
+        it('aggiorna i dati editoriali della serie esistente', async () => {
+            const { runtime } = createFakeFirestoreRuntime();
+            const store = createFirestoreTrackedShowStore(runtime);
+            const show = buildShow({ title: 'Titolo originale' });
+            await store.addShow(show);
+
+            const outcome = await store.updateCatalog({ ...show, title: 'Titolo aggiornato' });
+
+            expect(outcome.outcome).toBe('updated');
+            let latestShow: TrackedShow | undefined;
+            const unsubscribe = store.subscribeToShow(show.id, (candidate) => {
+                latestShow = candidate;
+            });
+            unsubscribe();
+            expect(latestShow?.title).toBe('Titolo aggiornato');
+        });
+
+        it('rifiuta l\'aggiornamento di una serie non più presente', async () => {
+            const { runtime } = createFakeFirestoreRuntime();
+            const store = createFirestoreTrackedShowStore(runtime);
+
+            const outcome = await store.updateCatalog(buildShow({ id: 'inesistente' }));
+
+            expect(outcome.outcome).toBe('rejected');
+        });
+    });
+
+    describe('changeProvider', () => {
+        it('sostituisce la piattaforma selezionata mantenendo il resto della serie', async () => {
+            const { runtime } = createFakeFirestoreRuntime();
+            const store = createFirestoreTrackedShowStore(runtime);
+            const show = buildShow();
+            await store.addShow(show);
+            const newProvider: ItalianProvider = { id: 'disneyplus', name: 'Disney+' };
+
+            const outcome = await store.changeProvider(show.id, newProvider, '2026-02-02T00:00:00.000Z');
+
+            expect(outcome.outcome).toBe('changed');
+            let latestShow: TrackedShow | undefined;
+            const unsubscribe = store.subscribeToShow(show.id, (candidate) => {
+                latestShow = candidate;
+            });
+            unsubscribe();
+            expect(latestShow?.selectedStreamingProviderId).toBe('disneyplus');
+            expect(latestShow?.selectedStreamingProviderName).toBe('Disney+');
+        });
+
+        it('rifiuta il cambio piattaforma per una serie non più presente', async () => {
+            const { runtime } = createFakeFirestoreRuntime();
+            const store = createFirestoreTrackedShowStore(runtime);
+
+            const outcome = await store.changeProvider('inesistente', undefined, '2026-02-02T00:00:00.000Z');
+
+            expect(outcome.outcome).toBe('rejected');
+        });
+    });
+
     describe('removeShow', () => {
         it('elimina la serie e la sua sottocollezione di eventi', async () => {
             const { runtime, documents } = createFakeFirestoreRuntime();
@@ -373,6 +431,23 @@ describe('firestoreTrackedShowStore', () => {
             const outcome = await store.undoLastProgress(show.id, staleRevisionCapturedBeforeSecondAdvance, 'irene');
 
             expect(outcome.outcome).toBe('rejected');
+        });
+
+        it('un undo concorrente a un avanzamento viene rifiutato sulla revisione fresca riletta in transazione', async () => {
+            const { runtime } = createFakeFirestoreRuntime();
+            const store = createFirestoreTrackedShowStore(runtime);
+            const show = buildShow({ seasons: [buildSeason(1, 3)] });
+            await store.addShow(show);
+            await store.advanceProgress(show.id, 's1e1', 'fabio', TODAY);
+            const revisionBeforeConcurrentAdvance = 1;
+
+            const [advanceToNext, staleUndo] = await Promise.all([
+                store.advanceProgress(show.id, 's1e2', 'fabio', TODAY),
+                store.undoLastProgress(show.id, revisionBeforeConcurrentAdvance, 'irene')
+            ]);
+
+            expect(advanceToNext.outcome).toBe('applied');
+            expect(staleUndo.outcome).toBe('rejected');
         });
 
         it('ripristina posizione ed evento quando la revisione è corretta', async () => {

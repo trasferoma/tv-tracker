@@ -321,10 +321,9 @@ async function advanceProgress(
             return outcome;
         }
         transaction.set(showRef, outcome.show);
-        transaction.set(
-            progressEventDocRef(runtime, firestore, id, outcome.event.id),
-            toFirestoreConfirmedEvent(runtime, outcome.event)
-        );
+        const eventRef = progressEventDocRef(runtime, firestore, id, outcome.event.id);
+        const eventData = toFirestoreConfirmedEvent(runtime, outcome.event);
+        transaction.set(eventRef, eventData);
         return outcome;
     });
 }
@@ -351,7 +350,8 @@ async function undoLastProgress(
             return outcome;
         }
         transaction.set(showRef, outcome.show);
-        transaction.update(progressEventDocRef(runtime, firestore, id, outcome.event.id), {
+        const eventRef = progressEventDocRef(runtime, firestore, id, outcome.event.id);
+        transaction.update(eventRef, {
             undoneAt: runtime.serverTimestamp(),
             undoneBy: outcome.event.undoneBy
         });
@@ -413,10 +413,11 @@ function buildImportOperations(
     progressEvents: readonly ProgressEvent[]
 ): readonly BatchOperation[] {
     const showOperations = shows.map((show) => setOperation(trackedShowDocRef(runtime, firestore, show.id), show));
-    const eventOperations = progressEvents.map((event) => setOperation(
-        progressEventDocRef(runtime, firestore, event.trackedShowId, event.id),
-        toFirestoreImportedEvent(runtime, event)
-    ));
+    const eventOperations = progressEvents.map((event) => {
+        const eventRef = progressEventDocRef(runtime, firestore, event.trackedShowId, event.id);
+        const eventData = toFirestoreImportedEvent(runtime, event);
+        return setOperation(eventRef, eventData);
+    });
     return [...showOperations, ...eventOperations];
 }
 

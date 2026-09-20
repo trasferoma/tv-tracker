@@ -50,6 +50,7 @@ function buildWatchPosition(backlogCount: number, nextUpcomingAirDate: string | 
         firstUnwatchedEpisode: undefined,
         backlogCount,
         isCaughtUp: backlogCount === 0,
+        isCompleted: true,
         nextUpcomingEpisode
     };
 }

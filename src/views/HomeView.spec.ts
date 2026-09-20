@@ -125,6 +125,7 @@ afterEach(() => {
         wrapper.unmount();
     }
     vi.resetModules();
+    globalThis.localStorage.clear();
 });
 
 describe('HomeView — stato vuoto', () => {
@@ -243,6 +244,78 @@ describe('HomeView — senza rete (criterio 9)', () => {
         await flushPromises();
 
         expect(wrapper.text()).toContain('Puntata e precedenti segnate come viste.');
+
+        vi.doUnmock('@/persistence/currentTrackedShowStore');
+    });
+});
+
+describe('HomeView — visibilità delle serie completate', () => {
+    it('mostra il pulsante con etichetta e conteggio corretti, e rivela le completate nascoste al click', async () => {
+        vi.resetModules();
+        const completedShow = buildShow({
+            id: 'completata',
+            providerShowId: 'p-completata',
+            title: 'Serie completata',
+            lastWatchedEpisodeId: 's1e1'
+        });
+        vi.doMock('@/persistence/currentTrackedShowStore', () => ({
+            currentTrackedShowStore: buildStubStore([completedShow])
+        }));
+
+        const { default: HomeView } = await import('./HomeView.vue');
+        const wrapper = mount(HomeView, { global: { plugins: [testRouter] } });
+        mountedWrappers.push(wrapper);
+        await flushPromises();
+
+        expect(wrapper.text()).toContain('Nessuna serie ancora');
+        expect(wrapper.find('.completed-toggle').text()).toBe('Mostra completate (1)');
+        expect(wrapper.findAll('.show')).toHaveLength(0);
+
+        await wrapper.find('.completed-toggle').trigger('click');
+        await flushPromises();
+
+        expect(wrapper.find('.completed-toggle').text()).toBe('Nascondi completate (1)');
+        expect(wrapper.findAll('.show')).toHaveLength(1);
+
+        vi.doUnmock('@/persistence/currentTrackedShowStore');
+    });
+
+    it('non mostra il pulsante quando non esiste alcuna serie completata', async () => {
+        vi.resetModules();
+        vi.doMock('@/persistence/currentTrackedShowStore', () => ({
+            currentTrackedShowStore: buildStubStore([buildShow()])
+        }));
+
+        const { default: HomeView } = await import('./HomeView.vue');
+        const wrapper = mount(HomeView, { global: { plugins: [testRouter] } });
+        mountedWrappers.push(wrapper);
+        await flushPromises();
+
+        expect(wrapper.find('.completed-toggle').exists()).toBe(false);
+
+        vi.doUnmock('@/persistence/currentTrackedShowStore');
+    });
+
+    it('mantiene visibili i controlli anche quando il filtro nasconde tutte le serie', async () => {
+        vi.resetModules();
+        const completedShow = buildShow({
+            id: 'completata',
+            providerShowId: 'p-completata',
+            title: 'Serie completata',
+            lastWatchedEpisodeId: 's1e1'
+        });
+        vi.doMock('@/persistence/currentTrackedShowStore', () => ({
+            currentTrackedShowStore: buildStubStore([completedShow])
+        }));
+
+        const { default: HomeView } = await import('./HomeView.vue');
+        const wrapper = mount(HomeView, { global: { plugins: [testRouter] } });
+        mountedWrappers.push(wrapper);
+        await flushPromises();
+
+        expect(wrapper.text()).toContain('Nessuna serie ancora');
+        expect(wrapper.find('#sortMode').exists()).toBe(true);
+        expect(wrapper.find('.completed-toggle').exists()).toBe(true);
 
         vi.doUnmock('@/persistence/currentTrackedShowStore');
     });

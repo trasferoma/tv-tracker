@@ -70,6 +70,10 @@ Ordinamento selezionabile dalla home:
 
 A parità di valore si usa sempre il titolo alfabetico, così la lista non cambia ordine casualmente. La scelta di ordinamento è una preferenza locale del dispositivo e non modifica né sincronizza i dati condivisi.
 
+Le serie **completate** non compaiono nell'elenco per impostazione predefinita. Una serie è completata quando non resta alcuna puntata da vedere **e** nessuna è annunciata in uscita. Lo stato è ricalcolato a ogni apertura e non memorizzato: se il catalogo annuncia una puntata nuova, la serie **torna nell'elenco da sola**. Una serie interamente vista ma con una puntata futura già annunciata **non** è completata e resta visibile, con lo stato «In pari». Le serie con dati non allineati non sono mai considerate completate e restano sempre visibili.
+
+Un pulsante accanto all'ordinamento alterna «Mostra completate (N)» e «Nascondi completate (N)», con N il numero di serie completate; non compare quando non ce ne sono. I controlli restano visibili finché esiste almeno una serie seguita, anche quando il filtro le nasconde tutte, altrimenti la scelta non sarebbe più reversibile. La scelta è una preferenza locale del dispositivo, ricordata fra le sessioni, e come l'ordinamento non modifica né sincronizza i dati condivisi. Il conteggio in cima alla home e il blocco dei duplicati in inserimento continuano a considerare **tutte** le serie, comprese quelle nascoste.
+
 ### Inserimento
 
 - campo titolo con autocomplete remoto e debounce;

@@ -7,11 +7,13 @@ import ConfirmDialog from '@/components/feedback/ConfirmDialog.vue';
 import EmptyState from '@/components/feedback/EmptyState.vue';
 import ImportSummaryCard from '@/components/feedback/ImportSummaryCard.vue';
 import ToastMessage from '@/components/feedback/ToastMessage.vue';
+import CompletedVisibilityToggle from '@/components/show/CompletedVisibilityToggle.vue';
 import ShowCard from '@/components/show/ShowCard.vue';
 import SortSelect from '@/components/show/SortSelect.vue';
 import type { AddShowDeps } from '@/composables/useAddShow';
 import { useBackup } from '@/composables/useBackup';
 import { useCatalogRefresh } from '@/composables/useCatalogRefresh';
+import { useCompletedVisibilityPreference } from '@/composables/useCompletedVisibilityPreference';
 import { useRefreshNotice } from '@/composables/useRefreshNotice';
 import { useSortPreference } from '@/composables/useSortPreference';
 import { useTrackedShows } from '@/composables/useTrackedShows';
@@ -29,7 +31,8 @@ const REPLACE_CONFIRM_MESSAGE = 'Le serie locali non presenti nel file verranno 
 const refreshNotice = useRefreshNotice();
 const catalogRefresh = useCatalogRefresh();
 const sortPreference = useSortPreference();
-const trackedShows = useTrackedShows(sortPreference.mode);
+const completedVisibility = useCompletedVisibilityPreference();
+const trackedShows = useTrackedShows(sortPreference.mode, completedVisibility.showCompleted);
 const backup = useBackup();
 
 const toastMessage = ref<string>();
@@ -43,7 +46,8 @@ onMounted(() => {
 
 const addShowDeps: AddShowDeps = { trackedProviderShowIds: trackedShows.trackedProviderShowIds };
 
-const hasTrackedShows = computed(() => trackedShows.listItems.value.length > 0);
+const hasAnyTrackedShow = computed(() => trackedShows.hasTrackedShows.value);
+const hasVisibleShows = computed(() => trackedShows.listItems.value.length > 0);
 const isConfirmDialogOpen = computed(() => trackedShows.pendingWatch.value !== undefined);
 const confirmMessage = computed(() => {
     const target = trackedShows.pendingWatch.value;
@@ -52,6 +56,10 @@ const confirmMessage = computed(() => {
 
 function changeSortMode(mode: ShowSortMode): void {
     sortPreference.mode.value = mode;
+}
+
+function changeCompletedVisibility(showCompleted: boolean): void {
+    completedVisibility.showCompleted.value = showCompleted;
 }
 
 function openAddDialog(): void {
@@ -155,14 +163,21 @@ async function confirmReplaceImport(): Promise<void> {
       </button>
     </div>
 
-    <SortSelect
-      v-if="hasTrackedShows"
-      :sort-mode="sortPreference.mode.value"
-      @change="changeSortMode"
-    />
+    <template v-if="hasAnyTrackedShow">
+      <SortSelect
+        :sort-mode="sortPreference.mode.value"
+        @change="changeSortMode"
+      />
+      <CompletedVisibilityToggle
+        v-if="trackedShows.completedCount.value > 0"
+        :show-completed="completedVisibility.showCompleted.value"
+        :completed-count="trackedShows.completedCount.value"
+        @change="changeCompletedVisibility"
+      />
+    </template>
 
     <div
-      v-if="hasTrackedShows"
+      v-if="hasVisibleShows"
       class="list"
     >
       <ShowCard

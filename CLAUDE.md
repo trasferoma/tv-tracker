@@ -173,6 +173,7 @@ Scelte del modello e perché:
 - **Speciali (`seasonNumber = 0`)** sono conservati nel dato ma esclusi dalla sequenza lineare, dalla posizione e dal conteggio arretrati: sezione a sé, in sola lettura.
 - **Locandina e badge seguono due criteri distinti** (`nextUnwatchedEpisode` vs `firstUnwatchedEpisode`): la locandina segue il prossimo episodio in sequenza anche se non ancora uscito, badge e azione «Vista» seguono la prima puntata **pubblicata** non vista. Disambiguato dal mockup, dove una serie «in pari» mostra comunque la locandina della stagione successiva, non quella della stagione 1.
 - **Il conteggio arretrati non dipende dalla piattaforma di streaming nota.** Dipende solo da `airDate <= oggi`. Subordinarlo alla presenza di un provider italiano — come chiedeva la lettera della SPEC — avrebbe potuto mostrare «In pari» una serie indietro di dieci puntate: la piattaforma è un promemoria di dove guardare, non un permesso perché la puntata esista.
+- **«Completata» è uno stato derivato, non un dato salvato.** Una serie senza alcun episodio non visto — né già pubblicato né annunciato — sparisce dalla home per impostazione predefinita (`WatchPosition.isCompleted`, da non confondere con `isCaughtUp`, vero anche con una puntata futura in arrivo). Nessun campo persistito la marca: è questo che la fa ricomparire da sola appena TMDB annuncia una puntata nuova. La preferenza mostra/nascondi sta in `localStorage`, non nei dati condivisi.
 
 ## Convenzioni di codice
 

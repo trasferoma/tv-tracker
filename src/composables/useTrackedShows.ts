@@ -61,6 +61,8 @@ export interface UseTrackedShows {
     readonly listItems: ComputedRef<readonly ShowListItem[]>;
     readonly summaryText: ComputedRef<string>;
     readonly trackedProviderShowIds: ComputedRef<ReadonlySet<string>>;
+    readonly completedCount: ComputedRef<number>;
+    readonly hasTrackedShows: ComputedRef<boolean>;
     readonly pendingWatch: Ref<PendingWatchConfirmation | undefined>;
     requestWatch(showId: string): void;
     cancelPendingWatch(): void;
@@ -82,7 +84,11 @@ interface ShowComputationDegraded {
     readonly errorMessage: string;
 }
 
-export function useTrackedShows(sortMode: Ref<ShowSortMode>, deps: TrackedShowsDeps = {}): UseTrackedShows {
+export function useTrackedShows(
+    sortMode: Ref<ShowSortMode>,
+    showCompleted: Ref<boolean>,
+    deps: TrackedShowsDeps = {}
+): UseTrackedShows {
     const store = deps.store ?? currentTrackedShowStore;
     const catalogSource = deps.catalogSource ?? sampleCatalogSource;
     const resolveToday = deps.resolveToday ?? (() => toCatalogDate(new Date()));
@@ -108,11 +114,17 @@ export function useTrackedShows(sortMode: Ref<ShowSortMode>, deps: TrackedShowsD
     });
 
     const listItems = computed<readonly ShowListItem[]>(() =>
-        sortEntries(entries.value, sortMode.value).map(toListItem));
+        sortEntries(entries.value, sortMode.value)
+            .filter((entry) => showCompleted.value || !isCompletedEntry(entry))
+            .map(toListItem));
 
     const summaryText = computed(() => buildSummaryText(entries.value));
 
     const trackedProviderShowIds = computed<ReadonlySet<string>>(() => toProviderShowIdSet(rawShows.value));
+
+    const completedCount = computed<number>(() => entries.value.filter(isCompletedEntry).length);
+
+    const hasTrackedShows = computed<boolean>(() => rawShows.value.length > 0);
 
     function requestWatch(showId: string): void {
         const item = listItems.value.find((candidate) => candidate.id === showId);
@@ -173,6 +185,8 @@ export function useTrackedShows(sortMode: Ref<ShowSortMode>, deps: TrackedShowsD
         listItems,
         summaryText,
         trackedProviderShowIds,
+        completedCount,
+        hasTrackedShows,
         pendingWatch,
         requestWatch,
         cancelPendingWatch,
@@ -204,6 +218,10 @@ function logMisalignedShow(show: TrackedShow, error: unknown): void {
 
 function isHealthyEntry(entry: ShowComputation): entry is ShowComputationOk {
     return entry.watchPosition !== undefined;
+}
+
+function isCompletedEntry(entry: ShowComputation): boolean {
+    return isHealthyEntry(entry) && entry.watchPosition.isCompleted;
 }
 
 function sortEntries(entries: readonly ShowComputation[], mode: ShowSortMode): readonly ShowComputation[] {

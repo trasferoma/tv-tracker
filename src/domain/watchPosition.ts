@@ -7,6 +7,7 @@ export interface WatchPosition {
     readonly firstUnwatchedEpisode: Episode | undefined;
     readonly backlogCount: number;
     readonly isCaughtUp: boolean;
+    readonly isCompleted: boolean;
     readonly nextUpcomingEpisode: Episode | undefined;
 }
 
@@ -25,6 +26,7 @@ export function calculateWatchPosition(show: TrackedShow, today: string): WatchP
         firstUnwatchedEpisode,
         backlogCount,
         isCaughtUp: backlogCount === 0,
+        isCompleted: nextUnwatchedEpisode === undefined,
         nextUpcomingEpisode
     };
 }

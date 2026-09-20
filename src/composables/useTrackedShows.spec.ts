@@ -105,14 +105,14 @@ function buildDeps(overrides: TrackedShowsDeps = {}): TrackedShowsDeps {
 
 const mountedWrappers: Array<VueWrapper> = [];
 
-function mountTrackedShows(sortMode: ShowSortMode, deps: TrackedShowsDeps): {
+function mountTrackedShows(sortMode: ShowSortMode, deps: TrackedShowsDeps, showCompleted = true): {
     wrapper: VueWrapper;
     controller: UseTrackedShows;
 } {
     let controller!: UseTrackedShows;
     const TestHost = defineComponent({
         setup() {
-            controller = useTrackedShows(ref(sortMode), deps);
+            controller = useTrackedShows(ref(sortMode), ref(showCompleted), deps);
             return () => h('div');
         }
     });
@@ -332,6 +332,84 @@ describe('useTrackedShows — isolamento per riga (Fase 4)', () => {
         ]);
 
         consoleErrorSpy.mockRestore();
+    });
+});
+
+describe('useTrackedShows — visibilità delle serie completate', () => {
+    it('esclude le serie completate dalla lista quando la preferenza è nascondi', async () => {
+        const completedShow = buildShow({
+            id: 'completata',
+            providerShowId: 'p-completata',
+            title: 'Serie completata',
+            lastWatchedEpisodeId: 's1e1'
+        });
+        const { store } = buildMemoryStore([completedShow]);
+
+        const { controller } = mountTrackedShows('activity', buildDeps({ store }), false);
+        await flushPromises();
+
+        expect(controller.listItems.value).toEqual([]);
+        expect(controller.completedCount.value).toBe(1);
+    });
+
+    it('mostra le serie completate quando la preferenza è mostra', async () => {
+        const completedShow = buildShow({
+            id: 'completata',
+            providerShowId: 'p-completata',
+            title: 'Serie completata',
+            lastWatchedEpisodeId: 's1e1'
+        });
+        const { store } = buildMemoryStore([completedShow]);
+
+        const { controller } = mountTrackedShows('activity', buildDeps({ store }), true);
+        await flushPromises();
+
+        expect(controller.listItems.value.map((item) => item.id)).toEqual(['completata']);
+        expect(controller.completedCount.value).toBe(1);
+    });
+
+    it('non nasconde mai una riga degradata, anche con le completate nascoste', async () => {
+        const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const brokenShow = buildShow({
+            id: 'rotta',
+            providerShowId: 'p-rotta',
+            title: 'Serie rotta',
+            lastWatchedEpisodeId: 'episodio-inesistente'
+        });
+        const { store } = buildMemoryStore([brokenShow]);
+
+        const { controller } = mountTrackedShows('activity', buildDeps({ store }), false);
+        await flushPromises();
+
+        expect(controller.listItems.value).toHaveLength(1);
+        expect(controller.completedCount.value).toBe(0);
+
+        consoleErrorSpy.mockRestore();
+    });
+
+    it('il sommario e gli id delle serie tracciate non cambiano per effetto del filtro sulle completate', async () => {
+        const completedShow = buildShow({
+            id: 'completata',
+            providerShowId: 'p-completata',
+            title: 'Serie completata',
+            lastWatchedEpisodeId: 's1e1'
+        });
+        const showWithBacklog = buildShow({
+            id: 'con-arretrati',
+            providerShowId: 'p-con-arretrati',
+            title: 'Con arretrati',
+            seasons: [buildSeason(1, [
+                buildEpisode(1, 1, 'E1', '2026-01-01'),
+                buildEpisode(1, 2, 'E2', '2026-01-08')
+            ])]
+        });
+        const { store } = buildMemoryStore([completedShow, showWithBacklog]);
+
+        const { controller } = mountTrackedShows('activity', buildDeps({ store }), false);
+        await flushPromises();
+
+        expect(controller.summaryText.value).toBe('2 nuove puntate in 1 serie');
+        expect(controller.trackedProviderShowIds.value).toEqual(new Set(['p-completata', 'p-con-arretrati']));
     });
 });
 

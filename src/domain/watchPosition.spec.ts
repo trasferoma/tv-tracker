@@ -137,6 +137,40 @@ describe('calculateWatchPosition', () => {
         expect(position.firstUnwatchedEpisode?.seasonNumber).toBe(1);
     });
 
+    it('è completata quando non resta alcun episodio non visto, né pubblicato né in arrivo', () => {
+        const episode1 = buildEpisode(1, 1, '2026-01-01');
+        const episode2 = buildEpisode(1, 2, '2026-01-08');
+        const season1 = buildSeason(1, [episode1, episode2]);
+        const show = buildShow([season1], 's1e2');
+
+        const position = calculateWatchPosition(show, '2026-02-01');
+
+        expect(position.isCompleted).toBe(true);
+    });
+
+    it('non è completata quando resta una puntata futura annunciata, anche se già in pari con gli arretrati', () => {
+        const episode1 = buildEpisode(1, 1, '2026-01-01');
+        const episode2 = buildEpisode(1, 2, '2026-03-01');
+        const season1 = buildSeason(1, [episode1, episode2]);
+        const show = buildShow([season1], 's1e1');
+
+        const position = calculateWatchPosition(show, '2026-02-01');
+
+        expect(position.isCaughtUp).toBe(true);
+        expect(position.isCompleted).toBe(false);
+    });
+
+    it('non è completata una serie mai iniziata', () => {
+        const episode1 = buildEpisode(1, 1, '2026-01-01');
+        const episode2 = buildEpisode(1, 2, '2026-01-08');
+        const season1 = buildSeason(1, [episode1, episode2]);
+        const show = buildShow([season1]);
+
+        const position = calculateWatchPosition(show, '2026-02-01');
+
+        expect(position.isCompleted).toBe(false);
+    });
+
     it('segnala come anomalia un lastWatchedEpisodeId assente dalla sequenza, senza trattarlo come serie mai iniziata', () => {
         const episode1 = buildEpisode(1, 1, '2026-01-01');
         const episode2 = buildEpisode(1, 2, '2026-01-08');

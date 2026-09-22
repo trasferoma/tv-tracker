@@ -4,6 +4,7 @@ import { computed, nextTick, onMounted, useTemplateRef, watch } from 'vue';
 import InitialPositionPicker from './InitialPositionPicker.vue';
 import ProviderChoice from './ProviderChoice.vue';
 import SearchResultRow from './SearchResultRow.vue';
+import ShowVisibilityControl from '@/components/show/ShowVisibilityControl.vue';
 import { useAddShow, type AddShowDeps } from '@/composables/useAddShow';
 
 const props = defineProps<{
@@ -226,6 +227,10 @@ async function submitAdd(): Promise<void> {
               :episodes="addShow.selectedShow.value?.publishedEpisodes ?? []"
               :model-value="addShow.initialPosition.value"
               @update:model-value="addShow.setInitialPosition"
+            />
+            <ShowVisibilityControl
+              :kind="addShow.visibilityChoice.value"
+              @change="addShow.setVisibilityChoice"
             />
             <p
               v-if="addShow.saveError.value"

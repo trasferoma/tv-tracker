@@ -36,6 +36,7 @@ function buildShow(overrides: Partial<TrackedShow> = {}): TrackedShow {
         italianProviders: [{ id: 'netflix', name: 'Netflix' }],
         selectedStreamingProviderId: 'netflix',
         selectedStreamingProviderName: 'Netflix',
+        visibility: 'shared',
         progressRevision: 0,
         addedAt: '2026-01-01T00:00:00.000Z',
         updatedAt: '2026-01-01T00:00:00.000Z',
@@ -44,7 +45,7 @@ function buildShow(overrides: Partial<TrackedShow> = {}): TrackedShow {
 }
 
 function buildBackup(shows: readonly TrackedShow[], progressEvents: readonly ProgressEvent[] = []): BackupFile {
-    return { formatVersion: 1, exportedAt: '2026-02-01T00:00:00.000Z', shows, progressEvents };
+    return { formatVersion: 2, exportedAt: '2026-02-01T00:00:00.000Z', shows, progressEvents };
 }
 
 afterEach(async () => {
@@ -148,7 +149,7 @@ describe('un file troncato non tocca il database', () => {
         const existing = buildShow({ providerShowId: 'existing' });
         await localTrackedShowStore.addShow(existing);
 
-        const validation = validateBackupFile({ formatVersion: 1, exportedAt: '2026-01-01T00:00:00.000Z' });
+        const validation = validateBackupFile({ formatVersion: 2, exportedAt: '2026-01-01T00:00:00.000Z' });
 
         expect(validation.valid).toBe(false);
         const allShows = await tvTrackerDatabase.trackedShows.toArray();

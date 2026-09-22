@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 
-import type { InitialPositionChoice } from '@/composables/useAddShow';
-import type { Episode } from '@/domain/trackedShow';
+import type { Episode, InitialPositionChoice } from '@/domain/trackedShow';
 import { formatEpisodeCode } from '@/presentation/italianFormat';
 
 const props = defineProps<{

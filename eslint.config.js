@@ -8,7 +8,8 @@ export default defineConfigWithVueTs(
             'dev-dist/**',
             'node_modules/**',
             'mockup/**',
-            'coverage/**'
+            'coverage/**',
+            '.wrangler/**'
         ]
     },
     pluginVue.configs['flat/recommended'],

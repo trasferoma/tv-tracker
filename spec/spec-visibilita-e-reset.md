@@ -67,7 +67,9 @@ Ordine di calcolo, che non è un dettaglio implementativo ma il comportamento ri
 | Conteggio delle completate | **dopo** la lente |
 | Elenco mostrato | dopo la lente e dopo il filtro delle completate |
 
-Il riepilogo e il conteggio delle completate sono calcolati su insiemi diversi **di proposito**: il riepilogo è una statistica di ciò che resta da guardare, mentre il conteggio delle completate è l'etichetta di un comando che decide perfino se quel comando compare. Un pulsante «Mostra completate (3)» che non rivela nulla, perché quelle tre serie sono fuori dalla lente, sarebbe una bugia.
+Il riepilogo e il conteggio delle completate sono calcolati su insiemi diversi **di proposito**: il riepilogo è una statistica di ciò che resta da guardare, mentre il conteggio delle completate decide se il comando «Mostra completate» compare. Un pulsante che non rivela nulla, perché le serie completate sono fuori dalla lente, sarebbe una bugia.
+
+> **Modifica del 2026-09-22, decisa a schermo.** Il conteggio **non compare più nell'etichetta** del pulsante, che ora è «Mostra completate» / «Nascondi completate». Il motivo è di forma: col numero il pulsante cambiava larghezza a ogni serie completata in più, e non permetteva di affiancarlo alla lente su una riga sola. Il conteggio resta e continua a decidere se il pulsante compare: la regola di calcolarlo **dopo** la lente vale ancora, per la metà di ragione che sopravvive.
 
 ### 3. Unicità: niente più una serie per `providerShowId`
 
@@ -209,7 +211,7 @@ Criteri verificabili, ognuno coperto da almeno un test.
 3. La lente «Tutto» mostra le mie private e le condivise; «Solo le mie» mostra solo le mie private; le private dell'altra persona non compaiono in nessuno dei due casi.
 4. La lente è ricordata per dispositivo e vale «Tutto» al primo avvio.
 5. Il riepilogo «N nuove puntate su M serie» è calcolato su tutto il visibile, indipendentemente dalla lente.
-6. Il conteggio delle completate è calcolato dopo la lente, e il comando «Mostra completate» compare solo quando quel conteggio è maggiore di zero.
+6. Il conteggio delle completate è calcolato dopo la lente, e il comando «Mostra completate» compare solo quando quel conteggio è maggiore di zero. Il conteggio non compare nell'etichetta del pulsante.
 7. Con la lente «Solo le mie» e nessuna serie privata, la lista mostra lo stato vuoto dedicato e i controlli restano visibili.
 8. La serie privata dell'altra persona non blocca l'inserimento della stessa serie; una condivisa o una mia privata lo bloccano.
 9. Lo store rifiuta la seconda scheda con lo stesso destinatario per lo stesso `providerShowId`, in entrambe le implementazioni, e riconosce come condivisi i documenti privi del campo.

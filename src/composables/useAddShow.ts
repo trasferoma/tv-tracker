@@ -1,5 +1,6 @@
 import { computed, onUnmounted, ref, shallowRef, type ComputedRef, type Ref } from 'vue';
 
+import { matchSessionState, session } from '@/auth/session';
 import type {
     CatalogSearchResult,
     CatalogShow,
@@ -12,7 +13,8 @@ import { isAlreadyPublished, toCatalogDate } from '@/domain/catalogDate';
 import { mergeAnnouncedEpisode } from '@/domain/catalogMerge';
 import { buildEpisodeSequence } from '@/domain/episodeOrder';
 import { generateId } from '@/domain/identity';
-import type { Episode, ItalianProvider, TrackedShow } from '@/domain/trackedShow';
+import { withPrivateVisibility, withSharedVisibility, type ShowAudience } from '@/domain/showVisibility';
+import type { Episode, InitialPositionChoice, ItalianProvider, TrackedShow } from '@/domain/trackedShow';
 import { currentTrackedShowStore } from '@/persistence/currentTrackedShowStore';
 import type { AddShowOutcome, TrackedShowStore } from '@/persistence/trackedShowStore';
 
@@ -38,10 +40,6 @@ export type SearchStatus =
     | { readonly kind: 'noResults' }
     | { readonly kind: 'unavailable'; readonly reason: string };
 
-export type InitialPositionChoice =
-    | { readonly kind: 'notStarted' }
-    | { readonly kind: 'watchedThrough'; readonly episodeId: string };
-
 export interface SelectedShowView {
     readonly title: string;
     readonly year: number | undefined;
@@ -55,6 +53,7 @@ export interface AddShowDeps {
     readonly catalogSource?: CatalogSource;
     readonly resolveNow?: () => string;
     readonly resolveToday?: () => string;
+    readonly resolveActiveProfileId?: () => string;
     readonly debounceMs?: number;
     readonly trackedProviderShowIds?: { readonly value: ReadonlySet<string> };
 }
@@ -67,12 +66,14 @@ export interface UseAddShow {
     readonly selectedShow: ComputedRef<SelectedShowView | undefined>;
     readonly selectedProviderId: Ref<string | undefined>;
     readonly initialPosition: Ref<InitialPositionChoice>;
+    readonly visibilityChoice: Ref<ShowAudience['kind']>;
     readonly isSaving: Ref<boolean>;
     readonly saveError: Ref<string | undefined>;
     setQuery(value: string): void;
     chooseResult(result: SearchResultItem): Promise<void>;
     chooseProvider(providerId: string | undefined): void;
     setInitialPosition(position: InitialPositionChoice): void;
+    setVisibilityChoice(choice: ShowAudience['kind']): void;
     backToSearch(): void;
     save(): Promise<AddShowOutcome | undefined>;
     reset(): void;
@@ -90,6 +91,7 @@ export function useAddShow(deps: AddShowDeps = {}): UseAddShow {
     const catalogSource = deps.catalogSource ?? tmdbCatalogSource;
     const resolveNow = deps.resolveNow ?? (() => new Date().toISOString());
     const resolveToday = deps.resolveToday ?? (() => toCatalogDate(new Date()));
+    const resolveActiveProfileId = deps.resolveActiveProfileId ?? resolveActiveProfileIdFromSession;
     const debounceMs = deps.debounceMs ?? SEARCH_DEBOUNCE_MS;
     const trackedProviderShowIds = deps.trackedProviderShowIds ?? { value: new Set<string>() };
 
@@ -100,6 +102,7 @@ export function useAddShow(deps: AddShowDeps = {}): UseAddShow {
     const selectedShowState = shallowRef<SelectedShowState>();
     const selectedProviderId = ref<string>();
     const initialPosition = ref<InitialPositionChoice>({ kind: 'notStarted' });
+    const visibilityChoice = ref<ShowAudience['kind']>('shared');
     const isSaving = ref(false);
     const saveError = ref<string>();
 
@@ -195,11 +198,16 @@ export function useAddShow(deps: AddShowDeps = {}): UseAddShow {
         initialPosition.value = position;
     }
 
+    function setVisibilityChoice(choice: ShowAudience['kind']): void {
+        visibilityChoice.value = choice;
+    }
+
     function backToSearch(): void {
         step.value = 'search';
         selectedShowState.value = undefined;
         selectedProviderId.value = undefined;
         initialPosition.value = { kind: 'notStarted' };
+        visibilityChoice.value = 'shared';
         saveError.value = undefined;
     }
 
@@ -224,7 +232,8 @@ export function useAddShow(deps: AddShowDeps = {}): UseAddShow {
     async function saveSelectedShow(current: SelectedShowState): Promise<AddShowOutcome> {
         const selectedProvider = current.providers.find((provider) => provider.id === selectedProviderId.value);
         const now = resolveNow();
-        const show = buildTrackedShow(current, selectedProvider, initialPosition.value, now);
+        const activeProfileId = resolveActiveProfileId();
+        const show = buildTrackedShow(current, selectedProvider, initialPosition.value, visibilityChoice.value, activeProfileId, now);
         const outcome = await store.addShow(show);
         if (outcome.outcome === 'rejected') {
             saveError.value = outcome.reason;
@@ -249,12 +258,14 @@ export function useAddShow(deps: AddShowDeps = {}): UseAddShow {
         selectedShow,
         selectedProviderId,
         initialPosition,
+        visibilityChoice,
         isSaving,
         saveError,
         setQuery,
         chooseResult,
         chooseProvider,
         setInitialPosition,
+        setVisibilityChoice,
         backToSearch,
         save,
         reset
@@ -302,13 +313,23 @@ function resolveLoadShowError(outcome: LoadShowOutcome): string {
     return outcome.outcome === 'unavailable' ? outcome.reason : SHOW_UNAVAILABLE_REASON;
 }
 
+function resolveActiveProfileIdFromSession(): string {
+    return matchSessionState(session.state.value, {
+        restoring: () => '',
+        authenticated: (profile) => profile.id,
+        anonymous: () => ''
+    });
+}
+
 function buildTrackedShow(
     selection: SelectedShowState,
     selectedProvider: ItalianProvider | undefined,
     initialPosition: InitialPositionChoice,
+    visibilityChoice: ShowAudience['kind'],
+    activeProfileId: string,
     now: string
 ): TrackedShow {
-    return {
+    const show: TrackedShow = {
         id: generateId(),
         catalogProvider: selection.catalogShow.catalogProvider,
         providerShowId: selection.catalogShow.providerShowId,
@@ -325,4 +346,5 @@ function buildTrackedShow(
         catalogUpdatedAt: now,
         updatedAt: now
     };
+    return visibilityChoice === 'shared' ? withSharedVisibility(show) : withPrivateVisibility(show, activeProfileId);
 }

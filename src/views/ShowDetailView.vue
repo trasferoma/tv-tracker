@@ -4,9 +4,12 @@ import { computed, ref, toRef } from 'vue';
 import ConfirmDialog from '@/components/feedback/ConfirmDialog.vue';
 import EmptyState from '@/components/feedback/EmptyState.vue';
 import ToastMessage from '@/components/feedback/ToastMessage.vue';
+import ResetProgressDialog from '@/components/show/ResetProgressDialog.vue';
 import SeasonSection from '@/components/show/SeasonSection.vue';
+import ShowVisibilityControl from '@/components/show/ShowVisibilityControl.vue';
 import SpecialsSection from '@/components/show/SpecialsSection.vue';
 import { useShowDetail, type ShowDetailDeps } from '@/composables/useShowDetail';
+import type { ShowAudience } from '@/domain/showVisibility';
 import { router } from '@/router';
 
 const NO_PROVIDER_LABEL = 'Nessuna piattaforma indicata.';
@@ -49,6 +52,13 @@ const removeConfirmMessage = computed(() => {
     return title === undefined ? '' : `“${title}” verrà rimossa dalla lista condivisa. Questa operazione non può essere annullata.`;
 });
 
+const resetSuggestionMessage = computed(() => {
+    const title = readyContent.value?.title;
+    return title === undefined
+        ? ''
+        : `Ora “${title}” è visibile a entrambi. Se volete ripartire da una puntata vista insieme, usate «Azzera tracciamento».`;
+});
+
 function goHome(): void {
     void router.push({ name: 'home' });
 }
@@ -89,8 +99,30 @@ async function handleProviderChange(event: Event): Promise<void> {
     }
 }
 
+async function handleVisibilityChange(targetKind: ShowAudience['kind']): Promise<void> {
+    const outcome = await detail.changeVisibility(targetKind);
+    if (outcome === undefined) {
+        return;
+    }
+    if (outcome.outcome === 'rejected') {
+        toastMessage.value = outcome.reason;
+        return;
+    }
+    if (detail.resetSuggestionVisible.value) {
+        toastMessage.value = resetSuggestionMessage.value;
+    }
+}
+
+async function confirmReset(): Promise<void> {
+    const outcome = await detail.confirmPendingReset();
+    if (outcome !== undefined && outcome.outcome === 'rejected') {
+        toastMessage.value = outcome.reason;
+    }
+}
+
 function dismissToast(): void {
     toastMessage.value = undefined;
+    detail.dismissResetSuggestion();
 }
 </script>
 
@@ -148,6 +180,11 @@ function dismissToast(): void {
         {{ NO_PROVIDER_LABEL }}
       </p>
 
+      <ShowVisibilityControl
+        :kind="readyContent.audience.kind"
+        @change="handleVisibilityChange"
+      />
+
       <button
         v-if="readyContent.canUndo"
         type="button"
@@ -165,6 +202,14 @@ function dismissToast(): void {
       />
 
       <SpecialsSection :episodes="readyContent.specials" />
+
+      <button
+        type="button"
+        class="reset"
+        @click="detail.requestReset"
+      >
+        Azzera tracciamento
+      </button>
 
       <button
         type="button"
@@ -221,6 +266,16 @@ function dismissToast(): void {
       danger
       @confirm="confirmRemove"
       @cancel="detail.cancelPendingRemove"
+    />
+
+    <ResetProgressDialog
+      :open="detail.pendingReset.value"
+      :episodes="readyContent?.resettableEpisodes ?? []"
+      :model-value="detail.resetTargetPosition.value"
+      :confirmation-message="detail.resetConfirmationMessage.value"
+      @update:model-value="detail.setResetTargetPosition"
+      @confirm="confirmReset"
+      @cancel="detail.cancelPendingReset"
     />
 
     <ToastMessage
@@ -332,10 +387,21 @@ function dismissToast(): void {
     font-weight: 850;
 }
 
-.danger {
+.reset {
     width: 100%;
     min-height: var(--tap);
     margin-top: 18px;
+    border: 1px solid var(--danger-border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--danger);
+    font-weight: 850;
+}
+
+.danger {
+    width: 100%;
+    min-height: var(--tap);
+    margin-top: 10px;
     border: 1px solid var(--danger-border);
     border-radius: var(--radius-sm);
     background: var(--surface);

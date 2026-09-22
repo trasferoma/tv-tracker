@@ -8,6 +8,7 @@ import { findProfileById } from '@/auth/profiles';
 import { session } from '@/auth/session';
 import type { CatalogSearchResult, CatalogShow, CatalogSource } from '@/catalog/catalogSource';
 import type { ShowSortMode } from '@/domain/showSorting';
+import type { ShowScope } from '@/domain/showVisibility';
 import type { Episode, ItalianProvider, ProgressOutcome, Season, TrackedShow } from '@/domain/trackedShow';
 import { advanceProgress } from '@/domain/progressAdvance';
 import type {
@@ -78,6 +79,7 @@ function buildMemoryStore(initialShows: readonly TrackedShow[] = []): {
         },
         updateCatalog: () => Promise.resolve({ outcome: 'rejected', reason: 'non implementato nel doppio di test' }),
         changeProvider: () => Promise.resolve({ outcome: 'rejected', reason: 'non implementato nel doppio di test' }),
+        changeVisibility: () => Promise.resolve({ outcome: 'rejected', reason: 'non implementato nel doppio di test' }),
         advanceProgress(id: string, targetEpisodeId: string, confirmedBy: string, today: string): Promise<ProgressOutcome> {
             const show = shows.find((candidate) => candidate.id === id);
             if (show === undefined) {
@@ -91,6 +93,7 @@ function buildMemoryStore(initialShows: readonly TrackedShow[] = []): {
             return Promise.resolve(outcome);
         },
         undoLastProgress: () => Promise.resolve({ outcome: 'rejected', reason: 'non implementato nel doppio di test' }),
+        resetProgress: () => Promise.resolve({ outcome: 'rejected', reason: 'non implementato nel doppio di test' }),
         removeShow: () => Promise.resolve({ outcome: 'rejected', reason: 'non implementato nel doppio di test' }),
         listAllProgressEvents: () => Promise.resolve([]),
         replaceAllShows: () => Promise.reject(new Error('non implementato nel doppio di test'))
@@ -105,14 +108,19 @@ function buildDeps(overrides: TrackedShowsDeps = {}): TrackedShowsDeps {
 
 const mountedWrappers: Array<VueWrapper> = [];
 
-function mountTrackedShows(sortMode: ShowSortMode, deps: TrackedShowsDeps, showCompleted = true): {
+function mountTrackedShows(
+    sortMode: ShowSortMode,
+    deps: TrackedShowsDeps,
+    showCompleted = true,
+    scope: ShowScope = 'all'
+): {
     wrapper: VueWrapper;
     controller: UseTrackedShows;
 } {
     let controller!: UseTrackedShows;
     const TestHost = defineComponent({
         setup() {
-            controller = useTrackedShows(ref(sortMode), ref(showCompleted), deps);
+            controller = useTrackedShows(ref(sortMode), ref(showCompleted), ref(scope), deps);
             return () => h('div');
         }
     });
@@ -425,8 +433,10 @@ describe('useTrackedShows — sottoscrizione', () => {
             addShow: () => Promise.resolve({ outcome: 'added' }),
             updateCatalog: () => Promise.resolve({ outcome: 'updated' }),
             changeProvider: () => Promise.resolve({ outcome: 'changed' }),
+            changeVisibility: () => Promise.resolve({ outcome: 'changed' }),
             advanceProgress: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato in questo test' }),
             undoLastProgress: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato in questo test' }),
+            resetProgress: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato in questo test' }),
             removeShow: () => Promise.resolve({ outcome: 'removed' }),
             listAllProgressEvents: () => Promise.resolve([]),
             replaceAllShows: () => Promise.reject(new Error('non usato in questo test'))
@@ -448,6 +458,264 @@ describe('useTrackedShows — stato vuoto', () => {
 
         expect(controller.listItems.value).toEqual([]);
         expect(controller.summaryText.value).toBe('Siete in pari con tutto');
+    });
+});
+
+describe('useTrackedShows — visibilità delle serie e lente (Fase 7)', () => {
+    it('con la lente "Tutto" mostra le condivise e le mie private, mai le private dell\'altra persona (criterio 3)', async () => {
+        const sharedShow = buildShow({ id: 'condivisa', providerShowId: 'p-condivisa', title: 'Condivisa' });
+        const myPrivateShow = buildShow({
+            id: 'mia-privata',
+            providerShowId: 'p-mia-privata',
+            title: 'Mia privata',
+            visibility: 'private',
+            privateFor: FABIO
+        });
+        const otherPrivateShow = buildShow({
+            id: 'altrui-privata',
+            providerShowId: 'p-altrui-privata',
+            title: 'Privata di Irene',
+            visibility: 'private',
+            privateFor: 'irene'
+        });
+        const { store } = buildMemoryStore([sharedShow, myPrivateShow, otherPrivateShow]);
+
+        const { controller } = mountTrackedShows('activity', buildDeps({ store }), true, 'all');
+        await flushPromises();
+
+        expect(controller.listItems.value.map((item) => item.id).sort()).toEqual(['condivisa', 'mia-privata']);
+    });
+
+    it('con la lente "Solo le mie" mostra solo le mie private, non le condivise (criterio 3)', async () => {
+        const sharedShow = buildShow({ id: 'condivisa', providerShowId: 'p-condivisa', title: 'Condivisa' });
+        const myPrivateShow = buildShow({
+            id: 'mia-privata',
+            providerShowId: 'p-mia-privata',
+            title: 'Mia privata',
+            visibility: 'private',
+            privateFor: FABIO
+        });
+        const { store } = buildMemoryStore([sharedShow, myPrivateShow]);
+
+        const { controller } = mountTrackedShows('activity', buildDeps({ store }), true, 'mine');
+        await flushPromises();
+
+        expect(controller.listItems.value.map((item) => item.id)).toEqual(['mia-privata']);
+    });
+
+    it('una serie privata dell\'altra persona non compare con nessuna posizione della lente (criterio 3)', async () => {
+        const otherPrivateShow = buildShow({
+            id: 'altrui-privata',
+            providerShowId: 'p-altrui-privata',
+            title: 'Privata di Irene',
+            visibility: 'private',
+            privateFor: 'irene'
+        });
+        const { store } = buildMemoryStore([otherPrivateShow]);
+
+        const allScope = mountTrackedShows('activity', buildDeps({ store }), true, 'all');
+        await flushPromises();
+        expect(allScope.controller.listItems.value).toEqual([]);
+
+        const mineScope = mountTrackedShows('activity', buildDeps({ store }), true, 'mine');
+        await flushPromises();
+        expect(mineScope.controller.listItems.value).toEqual([]);
+    });
+
+    it('il riepilogo resta invariato al cambio di lente perché è calcolato sul visibile (criterio 5)', async () => {
+        const sharedShowWithBacklog = buildShow({
+            id: 'condivisa',
+            providerShowId: 'p-condivisa',
+            title: 'Condivisa',
+            seasons: [buildSeason(1, [
+                buildEpisode(1, 1, 'E1', '2026-01-01'),
+                buildEpisode(1, 2, 'E2', '2026-01-08')
+            ])]
+        });
+        const myPrivateShowWithBacklog = buildShow({
+            id: 'mia-privata',
+            providerShowId: 'p-mia-privata',
+            title: 'Mia privata',
+            visibility: 'private',
+            privateFor: FABIO,
+            seasons: [buildSeason(1, [buildEpisode(1, 1, 'E1', '2026-01-01')])]
+        });
+        const { store } = buildMemoryStore([sharedShowWithBacklog, myPrivateShowWithBacklog]);
+
+        const allScope = mountTrackedShows('activity', buildDeps({ store }), true, 'all');
+        await flushPromises();
+        const mineScope = mountTrackedShows('activity', buildDeps({ store }), true, 'mine');
+        await flushPromises();
+
+        expect(allScope.controller.summaryText.value).toBe('3 nuove puntate in 2 serie');
+        expect(mineScope.controller.summaryText.value).toBe(allScope.controller.summaryText.value);
+    });
+
+    it('il riepilogo esclude gli arretrati di una serie privata dell\'altra persona (criterio 5)', async () => {
+        const sharedShowWithBacklog = buildShow({
+            id: 'condivisa',
+            providerShowId: 'p-condivisa',
+            title: 'Condivisa',
+            seasons: [buildSeason(1, [buildEpisode(1, 1, 'E1', '2026-01-01')])]
+        });
+        const otherPrivateShowWithBacklog = buildShow({
+            id: 'altrui-privata',
+            providerShowId: 'p-altrui-privata',
+            title: 'Privata di Irene',
+            visibility: 'private',
+            privateFor: 'irene',
+            seasons: [buildSeason(1, [
+                buildEpisode(1, 1, 'E1', '2026-01-01'),
+                buildEpisode(1, 2, 'E2', '2026-01-08')
+            ])]
+        });
+        const { store } = buildMemoryStore([sharedShowWithBacklog, otherPrivateShowWithBacklog]);
+
+        const { controller } = mountTrackedShows('activity', buildDeps({ store }), true, 'all');
+        await flushPromises();
+
+        expect(controller.summaryText.value).toBe('1 nuova puntata in 1 serie');
+    });
+
+    it('hasTrackedShows è falso quando l\'unica serie presente è privata dell\'altra persona', async () => {
+        const otherPrivateShow = buildShow({
+            id: 'altrui-privata',
+            providerShowId: 'p-altrui-privata',
+            title: 'Privata di Irene',
+            visibility: 'private',
+            privateFor: 'irene'
+        });
+        const { store } = buildMemoryStore([otherPrivateShow]);
+
+        const { controller } = mountTrackedShows('activity', buildDeps({ store }), true, 'all');
+        await flushPromises();
+
+        expect(controller.hasTrackedShows.value).toBe(false);
+    });
+
+    it('il conteggio delle completate è calcolato dopo la lente, non prima (criterio 6)', async () => {
+        const sharedCompletedShow = buildShow({
+            id: 'condivisa-completata',
+            providerShowId: 'p-condivisa-completata',
+            title: 'Condivisa completata',
+            lastWatchedEpisodeId: 's1e1'
+        });
+        const myPrivateCompletedShow = buildShow({
+            id: 'mia-privata-completata',
+            providerShowId: 'p-mia-privata-completata',
+            title: 'Mia privata completata',
+            visibility: 'private',
+            privateFor: FABIO,
+            lastWatchedEpisodeId: 's1e1'
+        });
+        const { store } = buildMemoryStore([sharedCompletedShow, myPrivateCompletedShow]);
+
+        const allScope = mountTrackedShows('activity', buildDeps({ store }), true, 'all');
+        await flushPromises();
+        const mineScope = mountTrackedShows('activity', buildDeps({ store }), true, 'mine');
+        await flushPromises();
+
+        expect(allScope.controller.completedCount.value).toBe(2);
+        expect(mineScope.controller.completedCount.value).toBe(1);
+    });
+
+    it('hasScopedShows resta vero quando la lente ha serie ma il filtro delle completate le nasconde tutte', async () => {
+        const myPrivateCompletedShow = buildShow({
+            id: 'mia-privata-completata',
+            providerShowId: 'p-mia-privata-completata',
+            title: 'Mia privata completata',
+            visibility: 'private',
+            privateFor: FABIO,
+            lastWatchedEpisodeId: 's1e1'
+        });
+        const { store } = buildMemoryStore([myPrivateCompletedShow]);
+
+        const { controller } = mountTrackedShows('activity', buildDeps({ store }), false, 'mine');
+        await flushPromises();
+
+        expect(controller.listItems.value).toEqual([]);
+        expect(controller.hasScopedShows.value).toBe(true);
+    });
+
+    it('hasScopedShows è falso quando non esiste alcuna serie che rientri nella lente', async () => {
+        const sharedShow = buildShow({ id: 'condivisa', providerShowId: 'p-condivisa', title: 'Condivisa' });
+        const { store } = buildMemoryStore([sharedShow]);
+
+        const { controller } = mountTrackedShows('activity', buildDeps({ store }), true, 'mine');
+        await flushPromises();
+
+        expect(controller.hasScopedShows.value).toBe(false);
+    });
+
+    it('il blocco dei duplicati considera il visibile: condivise e mie private sì, private altrui no (criterio 8)', async () => {
+        const sharedShow = buildShow({ id: 'condivisa', providerShowId: 'p-condivisa', title: 'Condivisa' });
+        const myPrivateShow = buildShow({
+            id: 'mia-privata',
+            providerShowId: 'p-mia-privata',
+            title: 'Mia privata',
+            visibility: 'private',
+            privateFor: FABIO
+        });
+        const otherPrivateShow = buildShow({
+            id: 'altrui-privata',
+            providerShowId: 'p-altrui-privata',
+            title: 'Privata di Irene',
+            visibility: 'private',
+            privateFor: 'irene'
+        });
+        const { store } = buildMemoryStore([sharedShow, myPrivateShow, otherPrivateShow]);
+
+        const { controller } = mountTrackedShows('activity', buildDeps({ store }), true, 'all');
+        await flushPromises();
+
+        expect(controller.trackedProviderShowIds.value).toEqual(new Set(['p-condivisa', 'p-mia-privata']));
+    });
+
+    it('una riga disallineata privata dell\'altra persona resta nascosta dal filtro di visibilità', async () => {
+        const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const otherPrivateBrokenShow = buildShow({
+            id: 'altrui-rotta',
+            providerShowId: 'p-altrui-rotta',
+            title: 'Rotta di Irene',
+            visibility: 'private',
+            privateFor: 'irene',
+            lastWatchedEpisodeId: 'episodio-inesistente'
+        });
+        const sharedBrokenShow = buildShow({
+            id: 'condivisa-rotta',
+            providerShowId: 'p-condivisa-rotta',
+            title: 'Rotta condivisa',
+            lastWatchedEpisodeId: 'episodio-inesistente'
+        });
+        const { store } = buildMemoryStore([otherPrivateBrokenShow, sharedBrokenShow]);
+
+        const { controller } = mountTrackedShows('activity', buildDeps({ store }), true, 'all');
+        await flushPromises();
+
+        expect(controller.listItems.value.map((item) => item.id)).toEqual(['condivisa-rotta']);
+        expect(controller.trackedProviderShowIds.value).toEqual(new Set(['p-condivisa-rotta']));
+
+        consoleErrorSpy.mockRestore();
+    });
+
+    it('marca l\'elemento di lista come privato con il profilo proprietario', async () => {
+        const myPrivateShow = buildShow({
+            id: 'mia-privata',
+            providerShowId: 'p-mia-privata',
+            title: 'Mia privata',
+            visibility: 'private',
+            privateFor: FABIO
+        });
+        const sharedShow = buildShow({ id: 'condivisa', providerShowId: 'p-condivisa', title: 'Condivisa' });
+        const { store } = buildMemoryStore([myPrivateShow, sharedShow]);
+
+        const { controller } = mountTrackedShows('activity', buildDeps({ store }), true, 'all');
+        await flushPromises();
+
+        const privateItem = controller.listItems.value.find((item) => item.id === 'mia-privata')!;
+        const sharedItem = controller.listItems.value.find((item) => item.id === 'condivisa')!;
+        expect(privateItem.privateProfileId).toBe(FABIO);
+        expect(sharedItem.privateProfileId).toBeUndefined();
     });
 });
 

@@ -106,7 +106,7 @@ describe('sottoscrizione', () => {
 });
 
 describe('addShow', () => {
-    it('rifiuta un duplicato per providerShowId', async () => {
+    it('rifiuta un duplicato condiviso per providerShowId', async () => {
         const first = buildShow({ providerShowId: 'tmdb-42' });
         const duplicate = buildShow({ providerShowId: 'tmdb-42' });
         await localTrackedShowStore.addShow(first);
@@ -115,6 +115,154 @@ describe('addShow', () => {
 
         expect(outcome.outcome).toBe('rejected');
         expect(await tvTrackerDatabase.trackedShows.count()).toBe(1);
+    });
+
+    it('rifiuta una seconda scheda privata con lo stesso destinatario', async () => {
+        const first = buildShow({ providerShowId: 'tmdb-42', visibility: 'private', privateFor: 'fabio' });
+        const duplicate = buildShow({ providerShowId: 'tmdb-42', visibility: 'private', privateFor: 'fabio' });
+        await localTrackedShowStore.addShow(first);
+
+        const outcome = await localTrackedShowStore.addShow(duplicate);
+
+        expect(outcome.outcome).toBe('rejected');
+        expect(await tvTrackerDatabase.trackedShows.count()).toBe(1);
+    });
+
+    it('accetta la stessa serie per l\'altra persona come record distinto', async () => {
+        const forFabio = buildShow({ providerShowId: 'tmdb-42', visibility: 'private', privateFor: 'fabio' });
+        const forIrene = buildShow({ providerShowId: 'tmdb-42', visibility: 'private', privateFor: 'irene' });
+        await localTrackedShowStore.addShow(forFabio);
+
+        const outcome = await localTrackedShowStore.addShow(forIrene);
+
+        expect(outcome.outcome).toBe('added');
+        expect(await tvTrackerDatabase.trackedShows.count()).toBe(2);
+    });
+
+    it('accetta una scheda privata quando esiste gia una scheda condivisa della stessa serie', async () => {
+        const shared = buildShow({ providerShowId: 'tmdb-42' });
+        const privateForFabio = buildShow({ providerShowId: 'tmdb-42', visibility: 'private', privateFor: 'fabio' });
+        await localTrackedShowStore.addShow(shared);
+
+        const outcome = await localTrackedShowStore.addShow(privateForFabio);
+
+        expect(outcome.outcome).toBe('added');
+        expect(await tvTrackerDatabase.trackedShows.count()).toBe(2);
+    });
+
+    it('riconosce come condiviso un documento privo del campo di visibilita', async () => {
+        const withoutVisibilityField = buildShow({ providerShowId: 'tmdb-42' });
+        const explicitlyShared = buildShow({ providerShowId: 'tmdb-42', visibility: 'shared' });
+        await localTrackedShowStore.addShow(withoutVisibilityField);
+
+        const outcome = await localTrackedShowStore.addShow(explicitlyShared);
+
+        expect(outcome.outcome).toBe('rejected');
+        expect(await tvTrackerDatabase.trackedShows.count()).toBe(1);
+    });
+});
+
+describe('changeVisibility', () => {
+    it('rifiuta il passaggio a Per tutti quando esiste gia una scheda condivisa della stessa serie', async () => {
+        const shared = buildShow({ providerShowId: 'tmdb-42' });
+        const privateShow = buildShow({ providerShowId: 'tmdb-42', visibility: 'private', privateFor: 'fabio' });
+        await localTrackedShowStore.addShow(shared);
+        await localTrackedShowStore.addShow(privateShow);
+
+        const outcome = await localTrackedShowStore.changeVisibility(
+            privateShow.id,
+            { kind: 'shared' },
+            '2026-02-02T00:00:00.000Z'
+        );
+
+        expect(outcome).toEqual({
+            outcome: 'rejected',
+            reason: 'Questa serie è già condivisa in una scheda a parte: rimuovine una prima di renderla condivisa.'
+        });
+    });
+
+    it('rifiuta il passaggio a Solo per me quando esiste gia una mia scheda privata della stessa serie', async () => {
+        const first = buildShow({ providerShowId: 'tmdb-42', visibility: 'private', privateFor: 'fabio' });
+        const second = buildShow({ providerShowId: 'tmdb-42' });
+        await localTrackedShowStore.addShow(first);
+        await localTrackedShowStore.addShow(second);
+
+        const outcome = await localTrackedShowStore.changeVisibility(
+            second.id,
+            { kind: 'private', profileId: 'fabio' },
+            '2026-02-02T00:00:00.000Z'
+        );
+
+        expect(outcome).toEqual({
+            outcome: 'rejected',
+            reason: 'Hai già una scheda solo tua di questa serie: rimuovila prima di rendere privata anche questa.'
+        });
+    });
+
+    it('permette di rendere privata una condivisa senza avviso', async () => {
+        const show = buildShow();
+        await localTrackedShowStore.addShow(show);
+
+        const outcome = await localTrackedShowStore.changeVisibility(
+            show.id,
+            { kind: 'private', profileId: 'irene' },
+            '2026-02-02T00:00:00.000Z'
+        );
+
+        expect(outcome).toEqual({ outcome: 'changed' });
+        const reloaded = await tvTrackerDatabase.trackedShows.get(show.id);
+        expect(reloaded?.visibility).toBe('private');
+        expect(reloaded?.privateFor).toBe('irene');
+    });
+
+    it('non tocca posizione, revisione ne eventi', async () => {
+        const show = buildShow();
+        await localTrackedShowStore.addShow(show);
+        await localTrackedShowStore.advanceProgress(show.id, 's1e1', 'fabio', TODAY);
+
+        await localTrackedShowStore.changeVisibility(
+            show.id,
+            { kind: 'private', profileId: 'fabio' },
+            '2026-02-02T00:00:00.000Z'
+        );
+
+        const reloaded = await tvTrackerDatabase.trackedShows.get(show.id);
+        expect(reloaded?.lastWatchedEpisodeId).toBe('s1e1');
+        expect(reloaded?.progressRevision).toBe(1);
+        expect(await tvTrackerDatabase.progressEvents.where('trackedShowId').equals(show.id).count()).toBe(1);
+    });
+
+    it('rendere privata una condivisa e poi ricondividerla restituisce la stessa posizione e lo stesso storico', async () => {
+        const show = buildShow();
+        await localTrackedShowStore.addShow(show);
+        await localTrackedShowStore.advanceProgress(show.id, 's1e1', 'fabio', TODAY);
+        const afterAdvance = await tvTrackerDatabase.trackedShows.get(show.id);
+        const eventsAfterAdvance = await tvTrackerDatabase.progressEvents.where('trackedShowId').equals(show.id).toArray();
+
+        await localTrackedShowStore.changeVisibility(
+            show.id,
+            { kind: 'private', profileId: 'irene' },
+            '2026-02-02T00:00:00.000Z'
+        );
+        await localTrackedShowStore.changeVisibility(show.id, { kind: 'shared' }, '2026-02-03T00:00:00.000Z');
+
+        const reloaded = await tvTrackerDatabase.trackedShows.get(show.id);
+        expect(reloaded?.lastWatchedEpisodeId).toBe(afterAdvance?.lastWatchedEpisodeId);
+        expect(reloaded?.progressRevision).toBe(afterAdvance?.progressRevision);
+        expect(reloaded?.visibility).toBe('shared');
+        expect(reloaded?.privateFor).toBeUndefined();
+        const eventsAfterRoundTrip = await tvTrackerDatabase.progressEvents.where('trackedShowId').equals(show.id).toArray();
+        expect(eventsAfterRoundTrip).toEqual(eventsAfterAdvance);
+    });
+
+    it('rifiuta il cambio di visibilita su una serie non piu presente', async () => {
+        const outcome = await localTrackedShowStore.changeVisibility(
+            'id-inesistente',
+            { kind: 'shared' },
+            '2026-02-02T00:00:00.000Z'
+        );
+
+        expect(outcome.outcome).toBe('rejected');
     });
 });
 
@@ -154,6 +302,99 @@ describe('removeShow', () => {
         expect(outcome.outcome).toBe('removed');
         expect(await tvTrackerDatabase.trackedShows.get(show.id)).toBeUndefined();
         expect(await tvTrackerDatabase.progressEvents.where('trackedShowId').equals(show.id).count()).toBe(0);
+    });
+});
+
+describe('resetProgress', () => {
+    it('cancella tutti i ProgressEvent della serie e non ne scrive alcuno', async () => {
+        const show = buildShow();
+        await localTrackedShowStore.addShow(show);
+        await localTrackedShowStore.advanceProgress(show.id, 's1e1', 'fabio', TODAY);
+        await localTrackedShowStore.advanceProgress(show.id, 's1e2', 'fabio', TODAY);
+
+        const outcome = await localTrackedShowStore.resetProgress(show.id, { kind: 'notStarted' }, '2026-02-05T00:00:00.000Z', TODAY);
+
+        expect(outcome.outcome).toBe('applied');
+        expect(await tvTrackerDatabase.progressEvents.where('trackedShowId').equals(show.id).count()).toBe(0);
+    });
+
+    it('non tocca gli eventi delle altre serie', async () => {
+        const resetShow = buildShow({ providerShowId: 'tmdb-reset' });
+        const otherShow = buildShow({ providerShowId: 'tmdb-other' });
+        await localTrackedShowStore.addShow(resetShow);
+        await localTrackedShowStore.addShow(otherShow);
+        await localTrackedShowStore.advanceProgress(resetShow.id, 's1e1', 'fabio', TODAY);
+        await localTrackedShowStore.advanceProgress(otherShow.id, 's1e1', 'irene', TODAY);
+
+        await localTrackedShowStore.resetProgress(resetShow.id, { kind: 'notStarted' }, '2026-02-05T00:00:00.000Z', TODAY);
+
+        expect(await tvTrackerDatabase.progressEvents.where('trackedShowId').equals(otherShow.id).count()).toBe(1);
+    });
+
+    it('porta la posizione alla scelta, incrementa la revisione, azzera lastViewedAt e sposta addedAt', async () => {
+        const show = buildShow();
+        await localTrackedShowStore.addShow(show);
+        await localTrackedShowStore.advanceProgress(show.id, 's1e1', 'fabio', TODAY);
+        const resetAt = '2026-02-05T00:00:00.000Z';
+
+        const outcome = await localTrackedShowStore.resetProgress(show.id, { kind: 'watchedThrough', episodeId: 's1e2' }, resetAt, TODAY);
+
+        expect(outcome.outcome).toBe('applied');
+        const reloaded = await tvTrackerDatabase.trackedShows.get(show.id);
+        expect(reloaded?.lastWatchedEpisodeId).toBe('s1e2');
+        expect(reloaded?.progressRevision).toBe(2);
+        expect(reloaded?.lastViewedAt).toBeUndefined();
+        expect(reloaded?.addedAt).toBe(resetAt);
+        expect(reloaded?.updatedAt).toBe(resetAt);
+    });
+
+    it('rifiuta il reset verso una puntata non ancora uscita', async () => {
+        const futureSeason: Season = {
+            providerSeasonId: 'season-1',
+            seasonNumber: 1,
+            posterUrl: 'poster-1.jpg',
+            episodes: [buildEpisode(1, 1, '2099-01-01')]
+        };
+        const show = buildShow({ seasons: [futureSeason] });
+        await localTrackedShowStore.addShow(show);
+
+        const outcome = await localTrackedShowStore.resetProgress(
+            show.id,
+            { kind: 'watchedThrough', episodeId: 's1e1' },
+            '2026-02-05T00:00:00.000Z',
+            TODAY
+        );
+
+        expect(outcome.outcome).toBe('rejected');
+        expect(await tvTrackerDatabase.trackedShows.get(show.id)).toEqual(show);
+    });
+
+    it('rifiuta il reset su una serie non piu presente', async () => {
+        const outcome = await localTrackedShowStore.resetProgress(
+            'id-inesistente',
+            { kind: 'notStarted' },
+            '2026-02-05T00:00:00.000Z',
+            TODAY
+        );
+
+        expect(outcome.outcome).toBe('rejected');
+    });
+
+    it('e atomico: un fallimento a meta non lascia la serie azzerata senza gli eventi cancellati', async () => {
+        const show = buildShow();
+        await localTrackedShowStore.addShow(show);
+        await localTrackedShowStore.advanceProgress(show.id, 's1e1', 'fabio', TODAY);
+        vi.spyOn(tvTrackerDatabase.progressEvents, 'where').mockImplementationOnce(() => {
+            throw new Error('errore simulato a metà scrittura');
+        });
+
+        await expect(
+            localTrackedShowStore.resetProgress(show.id, { kind: 'notStarted' }, '2026-02-05T00:00:00.000Z', TODAY)
+        ).rejects.toThrow();
+
+        const reloaded = await tvTrackerDatabase.trackedShows.get(show.id);
+        expect(reloaded?.lastWatchedEpisodeId).toBe('s1e1');
+        expect(await tvTrackerDatabase.progressEvents.where('trackedShowId').equals(show.id).count()).toBe(1);
     });
 });
 

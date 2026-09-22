@@ -4,6 +4,7 @@ import { tvTrackerDatabase } from './tvTrackerDatabase';
 import type {
     AddShowOutcome,
     ChangeProviderOutcome,
+    ChangeVisibilityOutcome,
     RemoveShowOutcome,
     ReplaceAllShowsOutcome,
     TrackedShowListener,
@@ -13,10 +14,24 @@ import type {
     UpdateCatalogOutcome
 } from './trackedShowStore';
 import { advanceProgress as computeAdvance } from '@/domain/progressAdvance';
+import { resetProgress as computeReset } from '@/domain/progressReset';
 import { undoLastProgress as computeUndo } from '@/domain/progressUndo';
-import type { ItalianProvider, ProgressEvent, ProgressOutcome, TrackedShow } from '@/domain/trackedShow';
+import { resolveShowAudience, withPrivateVisibility, withSharedVisibility, type ShowAudience } from '@/domain/showVisibility';
+import type {
+    InitialPositionChoice,
+    ItalianProvider,
+    ProgressEvent,
+    ProgressOutcome,
+    ResetProgressOutcome,
+    TrackedShow
+} from '@/domain/trackedShow';
 
 const SHOW_NOT_FOUND_REASON = 'La serie non esiste più: potrebbe essere stata rimossa da un altro dispositivo.';
+const DUPLICATE_SHOW_REASON = 'Questa serie è già stata aggiunta.';
+const VISIBILITY_COLLISION_REASONS: Record<ShowAudience['kind'], string> = {
+    shared: 'Questa serie è già condivisa in una scheda a parte: rimuovine una prima di renderla condivisa.',
+    private: 'Hai già una scheda solo tua di questa serie: rimuovila prima di rendere privata anche questa.'
+};
 
 function readDeviceInstant(): string {
     return new Date().toISOString();
@@ -32,10 +47,26 @@ function subscribeToShow(id: string, listener: TrackedShowListener): Unsubscribe
     return () => subscription.unsubscribe();
 }
 
+function audiencesCollide(first: ShowAudience, second: ShowAudience): boolean {
+    if (first.kind === 'shared' && second.kind === 'shared') {
+        return true;
+    }
+    return first.kind === 'private' && second.kind === 'private' && first.profileId === second.profileId;
+}
+
+async function findDuplicateForAudience(
+    providerShowId: string,
+    targetAudience: ShowAudience
+): Promise<TrackedShow | undefined> {
+    const candidates = await tvTrackerDatabase.trackedShows.where('providerShowId').equals(providerShowId).toArray();
+    return candidates.find((candidate) => audiencesCollide(resolveShowAudience(candidate), targetAudience));
+}
+
 async function addShow(show: TrackedShow): Promise<AddShowOutcome> {
-    const duplicate = await tvTrackerDatabase.trackedShows.where('providerShowId').equals(show.providerShowId).first();
+    const targetAudience = resolveShowAudience(show);
+    const duplicate = await findDuplicateForAudience(show.providerShowId, targetAudience);
     if (duplicate !== undefined) {
-        return { outcome: 'rejected', reason: 'Questa serie è già stata aggiunta.' };
+        return { outcome: 'rejected', reason: DUPLICATE_SHOW_REASON };
     }
     await tvTrackerDatabase.trackedShows.add(show);
     return { outcome: 'added' };
@@ -65,6 +96,41 @@ async function changeProvider(
         selectedStreamingProviderName: selectedProvider?.name,
         updatedAt
     };
+    await tvTrackerDatabase.trackedShows.put(updatedShow);
+    return { outcome: 'changed' };
+}
+
+function applyAudience(show: TrackedShow, targetAudience: ShowAudience, updatedAt: string): TrackedShow {
+    const showWithNewAudience = targetAudience.kind === 'shared'
+        ? withSharedVisibility(show)
+        : withPrivateVisibility(show, targetAudience.profileId);
+    return { ...showWithNewAudience, updatedAt };
+}
+
+async function findVisibilityCollision(
+    show: TrackedShow,
+    targetAudience: ShowAudience
+): Promise<TrackedShow | undefined> {
+    const candidates = await tvTrackerDatabase.trackedShows.where('providerShowId').equals(show.providerShowId).toArray();
+    return candidates.find(
+        (candidate) => candidate.id !== show.id && audiencesCollide(resolveShowAudience(candidate), targetAudience)
+    );
+}
+
+async function changeVisibility(
+    id: string,
+    targetAudience: ShowAudience,
+    updatedAt: string
+): Promise<ChangeVisibilityOutcome> {
+    const show = await tvTrackerDatabase.trackedShows.get(id);
+    if (show === undefined) {
+        return { outcome: 'rejected', reason: SHOW_NOT_FOUND_REASON };
+    }
+    const collision = await findVisibilityCollision(show, targetAudience);
+    if (collision !== undefined) {
+        return { outcome: 'rejected', reason: VISIBILITY_COLLISION_REASONS[targetAudience.kind] };
+    }
+    const updatedShow = applyAudience(show, targetAudience, updatedAt);
     await tvTrackerDatabase.trackedShows.put(updatedShow);
     return { outcome: 'changed' };
 }
@@ -119,6 +185,32 @@ async function undoLastProgress(id: string, expectedRevision: number, undoneBy: 
     );
 }
 
+async function resetProgress(
+    id: string,
+    targetPosition: InitialPositionChoice,
+    resetAt: string,
+    today: string
+): Promise<ResetProgressOutcome> {
+    return tvTrackerDatabase.transaction(
+        'rw',
+        tvTrackerDatabase.trackedShows,
+        tvTrackerDatabase.progressEvents,
+        async (): Promise<ResetProgressOutcome> => {
+            const show = await tvTrackerDatabase.trackedShows.get(id);
+            if (show === undefined) {
+                return { outcome: 'rejected', reason: SHOW_NOT_FOUND_REASON };
+            }
+            const outcome = computeReset(show, targetPosition, resetAt, today);
+            if (outcome.outcome === 'rejected') {
+                return outcome;
+            }
+            await tvTrackerDatabase.trackedShows.put(outcome.show);
+            await tvTrackerDatabase.progressEvents.where('trackedShowId').equals(id).delete();
+            return outcome;
+        }
+    );
+}
+
 async function removeShow(id: string): Promise<RemoveShowOutcome> {
     return tvTrackerDatabase.transaction(
         'rw',
@@ -164,8 +256,10 @@ export const localTrackedShowStore: TrackedShowStore = {
     addShow,
     updateCatalog,
     changeProvider,
+    changeVisibility,
     advanceProgress,
     undoLastProgress,
+    resetProgress,
     removeShow,
     listAllProgressEvents,
     replaceAllShows

@@ -29,6 +29,7 @@ function buildShow(overrides: Partial<TrackedShow> = {}): TrackedShow {
         italianProviders: providers,
         selectedStreamingProviderId: 'netflix',
         selectedStreamingProviderName: 'Netflix',
+        visibility: 'shared',
         progressRevision: 0,
         addedAt: '2026-01-01T00:00:00.000Z',
         updatedAt: '2026-01-01T00:00:00.000Z',
@@ -52,7 +53,7 @@ function buildEvent(overrides: Partial<ProgressEvent> = {}): ProgressEvent {
 
 function buildBackupFilePayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
     return {
-        formatVersion: 1,
+        formatVersion: 2,
         exportedAt: '2026-01-20T10:00:00.000Z',
         shows: [buildShow()],
         progressEvents: [buildEvent()],
@@ -69,7 +70,7 @@ describe('validateBackupFile', () => {
 
         expect(result.valid).toBe(true);
         if (result.valid) {
-            expect(result.backup.formatVersion).toBe(1);
+            expect(result.backup.formatVersion).toBe(2);
             expect(result.backup.shows).toEqual([show]);
             expect(result.backup.progressEvents).toEqual([event]);
         }
@@ -79,8 +80,18 @@ describe('validateBackupFile', () => {
         expect(validateBackupFile('non un oggetto').valid).toBe(false);
     });
 
+    it('rifiuta un file in formato versione 1, nominando la versione attesa e quella trovata', () => {
+        const outcome = validateBackupFile(buildBackupFilePayload({ formatVersion: 1 }));
+
+        expect(outcome.valid).toBe(false);
+        if (!outcome.valid) {
+            expect(outcome.reason).toContain('attesa 2');
+            expect(outcome.reason).toContain('trovata 1');
+        }
+    });
+
     it('rifiuta una versione del formato ignota', () => {
-        const outcome = validateBackupFile(buildBackupFilePayload({ formatVersion: 2 }));
+        const outcome = validateBackupFile(buildBackupFilePayload({ formatVersion: 3 }));
 
         expect(outcome.valid).toBe(false);
         if (!outcome.valid) {
@@ -89,7 +100,7 @@ describe('validateBackupFile', () => {
     });
 
     it('rifiuta un file troncato senza il campo shows', () => {
-        const outcome = validateBackupFile({ formatVersion: 1, exportedAt: '2026-01-20T10:00:00.000Z' });
+        const outcome = validateBackupFile({ formatVersion: 2, exportedAt: '2026-01-20T10:00:00.000Z' });
 
         expect(outcome.valid).toBe(false);
     });
@@ -138,5 +149,56 @@ describe('validateBackupFile', () => {
         const outcome = validateBackupFile(buildBackupFilePayload({ shows: [invalidShow] }));
 
         expect(outcome.valid).toBe(false);
+    });
+
+    it('accetta una serie privata con privateFor valorizzato', () => {
+        const validShow = buildShow({ visibility: 'private', privateFor: 'fabio' });
+
+        const outcome = validateBackupFile(buildBackupFilePayload({ shows: [validShow] }));
+
+        expect(outcome.valid).toBe(true);
+    });
+
+    it('rifiuta una serie privata senza privateFor', () => {
+        const invalidShow = buildShow({ visibility: 'private' });
+
+        const outcome = validateBackupFile(buildBackupFilePayload({ shows: [invalidShow] }));
+
+        expect(outcome.valid).toBe(false);
+        if (!outcome.valid) {
+            expect(outcome.reason).toContain('privateFor');
+        }
+    });
+
+    it('rifiuta una serie condivisa con privateFor valorizzato', () => {
+        const invalidShow = buildShow({ visibility: 'shared', privateFor: 'fabio' });
+
+        const outcome = validateBackupFile(buildBackupFilePayload({ shows: [invalidShow] }));
+
+        expect(outcome.valid).toBe(false);
+        if (!outcome.valid) {
+            expect(outcome.reason).toContain('privateFor');
+        }
+    });
+
+    it('rifiuta una serie priva del campo visibility', () => {
+        const rawShow: Record<string, unknown> = { ...buildShow() };
+        delete rawShow.visibility;
+
+        const outcome = validateBackupFile(buildBackupFilePayload({ shows: [rawShow] }));
+
+        expect(outcome.valid).toBe(false);
+    });
+
+    it('rifiuta un evento senza confirmedEpisodeId', () => {
+        const rawEvent: Record<string, unknown> = { ...buildEvent() };
+        delete rawEvent.confirmedEpisodeId;
+
+        const outcome = validateBackupFile(buildBackupFilePayload({ progressEvents: [rawEvent] }));
+
+        expect(outcome.valid).toBe(false);
+        if (!outcome.valid) {
+            expect(outcome.reason).toContain('confirmedEpisodeId');
+        }
     });
 });

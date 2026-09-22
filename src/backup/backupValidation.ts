@@ -1,4 +1,5 @@
 import { isValidCatalogDate } from '@/domain/catalogDate';
+import { resolveShowAudience, withPrivateVisibility, withSharedVisibility } from '@/domain/showVisibility';
 import type { CatalogProvider, Episode, ItalianProvider, ProgressEvent, Season, TrackedShow } from '@/domain/trackedShow';
 import { BACKUP_FORMAT_VERSION, type BackupFile } from './backupFormat';
 
@@ -53,6 +54,8 @@ function parseShow(rawShow: unknown, index: number): TrackedShow {
         show.selectedStreamingProviderId, `${label}: selectedStreamingProviderId`);
     const selectedStreamingProviderName = requireOptionalString(
         show.selectedStreamingProviderName, `${label}: selectedStreamingProviderName`);
+    const visibility = requireVisibility(show.visibility, `${label}: visibility`);
+    const privateFor = requireOptionalString(show.privateFor, `${label}: privateFor`);
     const lastWatchedEpisodeId = requireOptionalString(show.lastWatchedEpisodeId, `${label}: lastWatchedEpisodeId`);
     requireKnownLastWatchedEpisode(lastWatchedEpisodeId, seasons, label);
     const progressRevision = requireNonNegativeInteger(show.progressRevision, `${label}: progressRevision`);
@@ -60,7 +63,7 @@ function parseShow(rawShow: unknown, index: number): TrackedShow {
     const lastViewedAt = requireOptionalString(show.lastViewedAt, `${label}: lastViewedAt`);
     const catalogUpdatedAt = requireOptionalString(show.catalogUpdatedAt, `${label}: catalogUpdatedAt`);
     const updatedAt = requireNonEmptyString(show.updatedAt, `${label}: updatedAt`);
-    return {
+    const parsedShow: TrackedShow = {
         id,
         catalogProvider,
         providerShowId,
@@ -71,6 +74,8 @@ function parseShow(rawShow: unknown, index: number): TrackedShow {
         italianProviders,
         selectedStreamingProviderId,
         selectedStreamingProviderName,
+        visibility,
+        privateFor,
         lastWatchedEpisodeId,
         progressRevision,
         addedAt,
@@ -78,6 +83,8 @@ function parseShow(rawShow: unknown, index: number): TrackedShow {
         catalogUpdatedAt,
         updatedAt
     };
+    requireConsistentVisibility(parsedShow, label);
+    return parsedShow;
 }
 
 function parseSeason(rawSeason: unknown, showLabel: string, index: number): Season {
@@ -230,8 +237,27 @@ function requirePositiveInteger(value: unknown, label: string): number {
 }
 
 function requireExactFormatVersion(value: unknown): void {
-    if (value !== BACKUP_FORMAT_VERSION) {
-        fail(`Versione del formato non supportata: attesa ${BACKUP_FORMAT_VERSION}, trovata ${JSON.stringify(value)}.`);
+    if (value === BACKUP_FORMAT_VERSION) {
+        return;
+    }
+    fail(`Versione del formato non supportata: attesa ${BACKUP_FORMAT_VERSION}, trovata ${JSON.stringify(value)}.`);
+}
+
+function requireVisibility(value: unknown, label: string): 'shared' | 'private' {
+    if (value !== 'shared' && value !== 'private') {
+        fail(`${label} deve essere "shared" oppure "private".`);
+    }
+    return value;
+}
+
+function requireConsistentVisibility(show: TrackedShow, label: string): void {
+    const audience = resolveShowAudience(show);
+    const canonicalShow = audience.kind === 'private'
+        ? withPrivateVisibility(show, audience.profileId)
+        : withSharedVisibility(show);
+    const isConsistent = canonicalShow.visibility === show.visibility && canonicalShow.privateFor === show.privateFor;
+    if (!isConsistent) {
+        fail(`${label}: privateFor deve essere presente se e solo se visibility è "private".`);
     }
 }
 

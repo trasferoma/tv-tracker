@@ -28,6 +28,7 @@ function buildItem(overrides: Partial<ShowListItem> = {}): ShowListItem {
         canConfirmWatched: true,
         firstUnwatchedEpisodeId: 'episode-s02e07',
         errorMessage: undefined,
+        privateProfileId: undefined,
         ...overrides
     };
 }
@@ -108,5 +109,20 @@ describe('ShowCard', () => {
         const wrapper = mountShowCard(buildItem({ upcomingLabel: undefined }));
 
         expect(wrapper.find('.show-foot').exists()).toBe(false);
+    });
+
+    it('mostra il puntino nel colore del profilo sulle serie private', () => {
+        const wrapper = mountShowCard(buildItem({ privateProfileId: 'fabio' }));
+
+        const dot = wrapper.find('.private-dot');
+        expect(dot.exists()).toBe(true);
+        expect(dot.classes()).toContain('private-dot--fabio');
+        expect(dot.attributes('aria-label')).toBe('Solo per te');
+    });
+
+    it('non mostra alcun puntino sulle serie condivise', () => {
+        const wrapper = mountShowCard(buildItem({ privateProfileId: undefined }));
+
+        expect(wrapper.find('.private-dot').exists()).toBe(false);
     });
 });

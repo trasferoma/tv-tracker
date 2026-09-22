@@ -6,10 +6,13 @@ import { createRouter, createWebHistory } from 'vue-router';
 import ShowDetailView from './ShowDetailView.vue';
 import type { ShowDetailDeps } from '@/composables/useShowDetail';
 import { advanceProgress } from '@/domain/progressAdvance';
-import type { Episode, ProgressEvent, ProgressOutcome, Season, TrackedShow } from '@/domain/trackedShow';
+import { resetProgress } from '@/domain/progressReset';
+import { withPrivateVisibility, withSharedVisibility } from '@/domain/showVisibility';
+import type { Episode, ProgressEvent, ProgressOutcome, ResetProgressOutcome, Season, TrackedShow } from '@/domain/trackedShow';
 import type {
     AddShowOutcome,
     ChangeProviderOutcome,
+    ChangeVisibilityOutcome,
     RemoveShowOutcome,
     TrackedShowListener,
     TrackedShowsListener,
@@ -78,6 +81,17 @@ function buildFakeStore(initialShow: TrackedShow | undefined): {
         addShow: (): Promise<AddShowOutcome> => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
         updateCatalog: (): Promise<UpdateCatalogOutcome> => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
         changeProvider: (): Promise<ChangeProviderOutcome> => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
+        changeVisibility(showId: string, targetAudience, updatedAt: string): Promise<ChangeVisibilityOutcome> {
+            if (show === undefined || show.id !== showId) {
+                return Promise.resolve({ outcome: 'rejected', reason: 'La serie non esiste più.' });
+            }
+            const visibleShow = targetAudience.kind === 'shared'
+                ? withSharedVisibility(show)
+                : withPrivateVisibility(show, targetAudience.profileId);
+            show = { ...visibleShow, updatedAt };
+            notify();
+            return Promise.resolve({ outcome: 'changed' });
+        },
         advanceProgress(showId: string, targetEpisodeId: string, confirmedBy: string, today: string): Promise<ProgressOutcome> {
             if (show === undefined || show.id !== showId) {
                 return Promise.resolve({ outcome: 'rejected', reason: 'La serie non esiste più.' });
@@ -92,6 +106,18 @@ function buildFakeStore(initialShow: TrackedShow | undefined): {
             return Promise.resolve(outcome);
         },
         undoLastProgress: (): Promise<ProgressOutcome> => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
+        resetProgress(showId: string, targetPosition, resetAt: string, today: string): Promise<ResetProgressOutcome> {
+            if (show === undefined || show.id !== showId) {
+                return Promise.resolve({ outcome: 'rejected', reason: 'La serie non esiste più.' });
+            }
+            const outcome = resetProgress(show, targetPosition, resetAt, today);
+            if (outcome.outcome === 'applied') {
+                show = outcome.show;
+                events = [];
+                notify();
+            }
+            return Promise.resolve(outcome);
+        },
         removeShow(showId: string): Promise<RemoveShowOutcome> {
             if (show === undefined || show.id !== showId) {
                 return Promise.resolve({ outcome: 'rejected', reason: 'La serie non esiste più.' });
@@ -131,6 +157,7 @@ function mountShowDetailView(deps: ShowDetailDeps): VueWrapper {
 const WATCH_DIALOG_INDEX = 0;
 const UNDO_DIALOG_INDEX = 1;
 const REMOVE_DIALOG_INDEX = 2;
+const RESET_DIALOG_INDEX = 3;
 
 function findRemoveDialog(wrapper: VueWrapper) {
     return wrapper.findAll('.confirm-dialog')[REMOVE_DIALOG_INDEX]!;
@@ -142,6 +169,10 @@ function findWatchDialog(wrapper: VueWrapper) {
 
 function findUndoDialog(wrapper: VueWrapper) {
     return wrapper.findAll('.confirm-dialog')[UNDO_DIALOG_INDEX]!;
+}
+
+function findResetDialog(wrapper: VueWrapper) {
+    return wrapper.findAll('.confirm-dialog')[RESET_DIALOG_INDEX]!;
 }
 
 afterEach(() => {
@@ -218,8 +249,10 @@ describe('ShowDetailView — conflitto di revisione sull\'undo', () => {
             addShow: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
             updateCatalog: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
             changeProvider: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
+            changeVisibility: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
             advanceProgress: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
             undoLastProgress: () => Promise.resolve({ outcome: 'rejected', reason: conflictReason }),
+            resetProgress: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
             removeShow: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
             listAllProgressEvents: () => Promise.resolve([]),
             replaceAllShows: () => Promise.reject(new Error('non usato'))
@@ -232,5 +265,103 @@ describe('ShowDetailView — conflitto di revisione sull\'undo', () => {
         await flushPromises();
 
         expect(wrapper.find('.toast').text()).toBe(conflictReason);
+    });
+});
+
+describe('ShowDetailView — visibilità della serie', () => {
+    it('mostra «Per tutti» come scelta corrente su una serie condivisa', async () => {
+        const { store } = buildFakeStore(buildShow());
+        const wrapper = mountShowDetailView(buildDeps({ store }));
+        await flushPromises();
+
+        const buttons = wrapper.findAll('.visibility-choice');
+        expect(buttons[0]?.attributes('aria-pressed')).toBe('true');
+        expect(buttons[1]?.attributes('aria-pressed')).toBe('false');
+    });
+
+    it('passando a «Solo per me» la serie diventa privata del profilo attivo', async () => {
+        const { store, getShow } = buildFakeStore(buildShow());
+        const wrapper = mountShowDetailView(buildDeps({ store }));
+        await flushPromises();
+
+        await wrapper.findAll('.visibility-choice')[1]?.trigger('click');
+        await flushPromises();
+
+        expect(getShow()?.visibility).toBe('private');
+        expect(getShow()?.privateFor).toBe(FABIO);
+    });
+
+    it('passando a «Per tutti» mostra il suggerimento come messaggio effimero, senza eseguire alcun reset', async () => {
+        const privateShow = withPrivateVisibility(buildShow(), FABIO);
+        const { store, getShow } = buildFakeStore(privateShow);
+        const resetProgressSpy = vi.spyOn(store, 'resetProgress');
+        const wrapper = mountShowDetailView(buildDeps({ store }));
+        await flushPromises();
+
+        await wrapper.findAll('.visibility-choice')[0]?.trigger('click');
+        await flushPromises();
+
+        expect(wrapper.find('.toast').text()).toBe(
+            'Ora “Serie di prova” è visibile a entrambi. Se volete ripartire da una puntata vista insieme, usate «Azzera tracciamento».'
+        );
+        expect(resetProgressSpy).not.toHaveBeenCalled();
+        expect(getShow()?.visibility).toBe('shared');
+    });
+});
+
+describe('ShowDetailView — azzeramento del tracciamento', () => {
+    it('apre il dialogo con il picker e la conferma nella variante rossa', async () => {
+        const { store } = buildFakeStore(buildShow());
+        const wrapper = mountShowDetailView(buildDeps({ store }));
+        await flushPromises();
+
+        await wrapper.find('.reset').trigger('click');
+
+        const dialog = findResetDialog(wrapper);
+        expect(dialog.find('.position-picker').exists()).toBe(true);
+        expect(dialog.find('.accept-confirm--danger').exists()).toBe(true);
+    });
+
+    it('annullando il dialogo di reset nulla cambia', async () => {
+        const show = buildShow({ lastWatchedEpisodeId: 's1e1', lastViewedAt: '2026-01-15T00:00:00Z', progressRevision: 1 });
+        const { store, getShow } = buildFakeStore(show);
+        const wrapper = mountShowDetailView(buildDeps({ store }));
+        await flushPromises();
+        const before = getShow();
+
+        await wrapper.find('.reset').trigger('click');
+        await findResetDialog(wrapper).find('.cancel-confirm').trigger('click');
+        await flushPromises();
+
+        expect(getShow()).toEqual(before);
+    });
+
+    it('confermando il reset azzera la posizione e fa sparire «Annulla ultima conferma»', async () => {
+        const show = buildShow({ lastWatchedEpisodeId: 's1e1', lastViewedAt: '2026-01-15T00:00:00Z', progressRevision: 1 });
+        const { store, getShow } = buildFakeStore(show);
+        const wrapper = mountShowDetailView(buildDeps({ store }));
+        await flushPromises();
+        expect(wrapper.find('.undo').exists()).toBe(true);
+
+        await wrapper.find('.reset').trigger('click');
+        await findResetDialog(wrapper).find('.accept-confirm').trigger('click');
+        await flushPromises();
+
+        expect(getShow()?.lastWatchedEpisodeId).toBeUndefined();
+        expect(getShow()?.lastViewedAt).toBeUndefined();
+        expect(getShow()?.progressRevision).toBe(2);
+        expect(wrapper.find('.undo').exists()).toBe(false);
+    });
+});
+
+describe('ShowDetailView — serie privata dell\'altra persona aperta per indirizzo diretto', () => {
+    it('la serie si vede normalmente', async () => {
+        const privateShow = withPrivateVisibility(buildShow(), 'irene');
+        const { store } = buildFakeStore(privateShow);
+        const wrapper = mountShowDetailView(buildDeps({ store }));
+        await flushPromises();
+
+        expect(wrapper.text()).toContain('Serie di prova');
+        expect(wrapper.find('.visibility-choice[aria-pressed="true"]').text()).toBe('Solo per me');
     });
 });

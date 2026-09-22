@@ -67,8 +67,10 @@ function buildStore(initialShows: readonly TrackedShow[]): { store: TrackedShowS
             return Promise.resolve({ outcome: 'updated' });
         },
         changeProvider: notImplemented,
+        changeVisibility: notImplemented,
         advanceProgress: notImplemented,
         undoLastProgress: notImplemented,
+        resetProgress: notImplemented,
         removeShow: notImplemented,
         listAllProgressEvents: notImplemented,
         replaceAllShows: notImplemented

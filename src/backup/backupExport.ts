@@ -1,4 +1,5 @@
 import { toCatalogDate } from '@/domain/catalogDate';
+import { resolveShowAudience, withPrivateVisibility, withSharedVisibility } from '@/domain/showVisibility';
 import type { ProgressEvent, TrackedShow } from '@/domain/trackedShow';
 import type { TrackedShowStore, Unsubscribe } from '@/persistence/trackedShowStore';
 import { BACKUP_FORMAT_VERSION, type BackupFile } from './backupFormat';
@@ -16,6 +17,13 @@ export async function collectProgressEvents(store: TrackedShowStore): Promise<re
     return store.listAllProgressEvents();
 }
 
+function normalizeVisibility(show: TrackedShow): TrackedShow {
+    const audience = resolveShowAudience(show);
+    return audience.kind === 'private'
+        ? withPrivateVisibility(show, audience.profileId)
+        : withSharedVisibility(show);
+}
+
 export function buildBackupFile(
     shows: readonly TrackedShow[],
     progressEvents: readonly ProgressEvent[],
@@ -24,7 +32,7 @@ export function buildBackupFile(
     return {
         formatVersion: BACKUP_FORMAT_VERSION,
         exportedAt: exportedAt.toISOString(),
-        shows,
+        shows: shows.map(normalizeVisibility),
         progressEvents
     };
 }

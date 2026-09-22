@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { createFirestoreTrackedShowStore, type FirestoreRuntime } from './firestoreTrackedShowStore';
 import type { Unsubscribe } from './trackedShowStore';
@@ -312,6 +312,116 @@ describe('firestoreTrackedShowStore', () => {
             expect(outcome.outcome).toBe('rejected');
             expect(documents.size).toBe(1);
         });
+
+        it('accetta la stessa serie per l\'altra persona come record distinto', async () => {
+            const { runtime, documents } = createFakeFirestoreRuntime();
+            const store = createFirestoreTrackedShowStore(runtime);
+            const forFabio = buildShow({ providerShowId: 'tmdb-42', visibility: 'private', privateFor: 'fabio' });
+            const forIrene = buildShow({ providerShowId: 'tmdb-42', visibility: 'private', privateFor: 'irene' });
+            await store.addShow(forFabio);
+
+            const outcome = await store.addShow(forIrene);
+
+            expect(outcome.outcome).toBe('added');
+            expect(documents.size).toBe(2);
+        });
+
+        it('riconosce come condiviso un documento storico privo del campo di visibilità', async () => {
+            const { runtime } = createFakeFirestoreRuntime();
+            const store = createFirestoreTrackedShowStore(runtime);
+            const withoutVisibilityField = buildShow({ providerShowId: 'tmdb-legacy' });
+            const explicitlyShared = buildShow({ providerShowId: 'tmdb-legacy', visibility: 'shared' });
+            await store.addShow(withoutVisibilityField);
+
+            const outcome = await store.addShow(explicitlyShared);
+
+            expect(outcome.outcome).toBe('rejected');
+        });
+    });
+
+    describe('changeVisibility', () => {
+        it('rifiuta il passaggio a Per tutti quando esiste già una scheda condivisa della stessa serie', async () => {
+            const { runtime } = createFakeFirestoreRuntime();
+            const store = createFirestoreTrackedShowStore(runtime);
+            const shared = buildShow({ providerShowId: 'tmdb-42' });
+            const privateShow = buildShow({ providerShowId: 'tmdb-42', visibility: 'private', privateFor: 'fabio' });
+            await store.addShow(shared);
+            await store.addShow(privateShow);
+
+            const outcome = await store.changeVisibility(privateShow.id, { kind: 'shared' }, '2026-02-02T00:00:00.000Z');
+
+            expect(outcome).toEqual({
+                outcome: 'rejected',
+                reason: 'Questa serie è già condivisa in una scheda a parte: rimuovine una prima di renderla condivisa.'
+            });
+        });
+
+        it('rifiuta il passaggio a Solo per me quando esiste già una mia scheda privata della stessa serie', async () => {
+            const { runtime } = createFakeFirestoreRuntime();
+            const store = createFirestoreTrackedShowStore(runtime);
+            const first = buildShow({ providerShowId: 'tmdb-42', visibility: 'private', privateFor: 'fabio' });
+            const second = buildShow({ providerShowId: 'tmdb-42' });
+            await store.addShow(first);
+            await store.addShow(second);
+
+            const outcome = await store.changeVisibility(
+                second.id,
+                { kind: 'private', profileId: 'fabio' },
+                '2026-02-02T00:00:00.000Z'
+            );
+
+            expect(outcome).toEqual({
+                outcome: 'rejected',
+                reason: 'Hai già una scheda solo tua di questa serie: rimuovila prima di rendere privata anche questa.'
+            });
+        });
+
+        it('permette di rendere privata una condivisa senza avviso', async () => {
+            const { runtime, documents } = createFakeFirestoreRuntime();
+            const store = createFirestoreTrackedShowStore(runtime);
+            const show = buildShow();
+            await store.addShow(show);
+            const showPath = [...documents.keys()].find((path) => path.endsWith(show.id));
+
+            const outcome = await store.changeVisibility(
+                show.id,
+                { kind: 'private', profileId: 'irene' },
+                '2026-02-02T00:00:00.000Z'
+            );
+
+            expect(outcome).toEqual({ outcome: 'changed' });
+            const reloaded = documents.get(showPath ?? '');
+            expect(reloaded?.visibility).toBe('private');
+            expect(reloaded?.privateFor).toBe('irene');
+        });
+
+        it('non scrive privateFor su una serie resa di nuovo condivisa, e conserva posizione e revisione', async () => {
+            const { runtime, documents } = createFakeFirestoreRuntime();
+            const store = createFirestoreTrackedShowStore(runtime);
+            const show = buildShow();
+            await store.addShow(show);
+            await store.advanceProgress(show.id, 's1e1', 'fabio', TODAY);
+            const showPath = [...documents.keys()].find((path) => path.endsWith(show.id)) ?? '';
+            const afterAdvance = documents.get(showPath);
+
+            await store.changeVisibility(show.id, { kind: 'private', profileId: 'irene' }, '2026-02-02T00:00:00.000Z');
+            await store.changeVisibility(show.id, { kind: 'shared' }, '2026-02-03T00:00:00.000Z');
+
+            const reloaded = documents.get(showPath);
+            expect(reloaded?.lastWatchedEpisodeId).toBe(afterAdvance?.lastWatchedEpisodeId);
+            expect(reloaded?.progressRevision).toBe(afterAdvance?.progressRevision);
+            expect(reloaded?.visibility).toBe('shared');
+            expect(reloaded).not.toHaveProperty('privateFor');
+        });
+
+        it('rifiuta il cambio di visibilità su una serie non più presente', async () => {
+            const { runtime } = createFakeFirestoreRuntime();
+            const store = createFirestoreTrackedShowStore(runtime);
+
+            const outcome = await store.changeVisibility('id-inesistente', { kind: 'shared' }, '2026-02-02T00:00:00.000Z');
+
+            expect(outcome.outcome).toBe('rejected');
+        });
     });
 
     describe('updateCatalog', () => {
@@ -397,6 +507,105 @@ describe('firestoreTrackedShowStore', () => {
         });
     });
 
+    describe('resetProgress', () => {
+        it('cancella tutti i ProgressEvent della serie e non ne scrive alcuno nella sottocollezione', async () => {
+            const { runtime, documents } = createFakeFirestoreRuntime();
+            const store = createFirestoreTrackedShowStore(runtime);
+            const show = buildShow();
+            await store.addShow(show);
+            await store.advanceProgress(show.id, 's1e1', 'fabio', TODAY);
+            await store.advanceProgress(show.id, 's1e2', 'fabio', TODAY);
+
+            const outcome = await store.resetProgress(show.id, { kind: 'notStarted' }, '2026-02-05T00:00:00.000Z', TODAY);
+
+            expect(outcome.outcome).toBe('applied');
+            const remainingEventPaths = [...documents.keys()]
+                .filter((path) => path.includes('progressEvents') && path.includes(show.id));
+            expect(remainingEventPaths).toHaveLength(0);
+        });
+
+        it('non tocca gli eventi delle altre serie', async () => {
+            const { runtime, documents } = createFakeFirestoreRuntime();
+            const store = createFirestoreTrackedShowStore(runtime);
+            const resetShow = buildShow({ providerShowId: 'tmdb-reset' });
+            const otherShow = buildShow({ providerShowId: 'tmdb-other' });
+            await store.addShow(resetShow);
+            await store.addShow(otherShow);
+            await store.advanceProgress(resetShow.id, 's1e1', 'fabio', TODAY);
+            await store.advanceProgress(otherShow.id, 's1e1', 'irene', TODAY);
+
+            await store.resetProgress(resetShow.id, { kind: 'notStarted' }, '2026-02-05T00:00:00.000Z', TODAY);
+
+            const otherEventPaths = [...documents.keys()]
+                .filter((path) => path.includes('progressEvents') && path.includes(otherShow.id));
+            expect(otherEventPaths).toHaveLength(1);
+        });
+
+        it('porta la posizione alla scelta, incrementa la revisione, azzera lastViewedAt e sposta addedAt', async () => {
+            const { runtime, documents } = createFakeFirestoreRuntime();
+            const store = createFirestoreTrackedShowStore(runtime);
+            const show = buildShow();
+            await store.addShow(show);
+            await store.advanceProgress(show.id, 's1e1', 'fabio', TODAY);
+            const resetAt = '2026-02-05T00:00:00.000Z';
+            const showPath = [...documents.keys()].find((path) => path.endsWith(show.id)) ?? '';
+
+            const outcome = await store.resetProgress(
+                show.id,
+                { kind: 'watchedThrough', episodeId: 's1e2' },
+                resetAt,
+                TODAY
+            );
+
+            expect(outcome.outcome).toBe('applied');
+            const reloaded = documents.get(showPath);
+            expect(reloaded?.lastWatchedEpisodeId).toBe('s1e2');
+            expect(reloaded?.progressRevision).toBe(2);
+            expect(reloaded).not.toHaveProperty('lastViewedAt');
+            expect(reloaded?.addedAt).toBe(resetAt);
+            expect(reloaded?.updatedAt).toBe(resetAt);
+        });
+
+        it('rifiuta il reset verso una puntata non ancora uscita', async () => {
+            const { runtime, documents } = createFakeFirestoreRuntime();
+            const store = createFirestoreTrackedShowStore(runtime);
+            const futureSeason: Season = {
+                providerSeasonId: 'season-1',
+                seasonNumber: 1,
+                episodes: [buildEpisode(1, 1, '2099-01-01')]
+            };
+            const show = buildShow({ seasons: [futureSeason] });
+            await store.addShow(show);
+            const showPath = [...documents.keys()].find((path) => path.endsWith(show.id)) ?? '';
+
+            const outcome = await store.resetProgress(
+                show.id,
+                { kind: 'watchedThrough', episodeId: 's1e1' },
+                '2026-02-05T00:00:00.000Z',
+                TODAY
+            );
+
+            expect(outcome.outcome).toBe('rejected');
+            const reloaded = documents.get(showPath);
+            expect(reloaded?.lastWatchedEpisodeId).toBeUndefined();
+            expect(reloaded?.progressRevision).toBe(0);
+        });
+
+        it('rifiuta il reset su una serie non più presente', async () => {
+            const { runtime } = createFakeFirestoreRuntime();
+            const store = createFirestoreTrackedShowStore(runtime);
+
+            const outcome = await store.resetProgress(
+                'id-inesistente',
+                { kind: 'notStarted' },
+                '2026-02-05T00:00:00.000Z',
+                TODAY
+            );
+
+            expect(outcome.outcome).toBe('rejected');
+        });
+    });
+
     describe('rilettura dello stato dentro la transazione — criterio 10', () => {
         it('due avanzamenti concorrenti non fanno regredire la posizione: prevale il più avanzato', async () => {
             const { runtime } = createFakeFirestoreRuntime();
@@ -464,6 +673,56 @@ describe('firestoreTrackedShowStore', () => {
                 expect(outcome.show.lastWatchedEpisodeId).toBeUndefined();
                 expect(outcome.event.undoneBy).toBe('irene');
             }
+        });
+    });
+
+    describe('changeVisibility e resetProgress non sovrascrivono in silenzio una conferma concorrente', () => {
+        it('changeVisibility rilegge la posizione fresca in transazione anche se il controllo di collisione aveva letto uno stato più vecchio', async () => {
+            const { runtime, documents } = createFakeFirestoreRuntime();
+            const store = createFirestoreTrackedShowStore(runtime);
+            const show = buildShow();
+            await store.addShow(show);
+            const showPath = [...documents.keys()].find((path) => path.endsWith(show.id)) ?? '';
+            const staleData = documents.get(showPath);
+            const staleSnapshot = { id: show.id, ref: { id: show.id, path: showPath }, exists: () => true, data: () => staleData };
+            await store.advanceProgress(show.id, 's1e1', 'fabio', TODAY);
+            vi.spyOn(runtime, 'getDoc').mockResolvedValueOnce(
+                staleSnapshot as unknown as Awaited<ReturnType<FirestoreRuntime['getDoc']>>
+            );
+
+            const outcome = await store.changeVisibility(
+                show.id,
+                { kind: 'private', profileId: 'irene' },
+                '2026-02-02T00:00:00.000Z'
+            );
+
+            expect(outcome).toEqual({ outcome: 'changed' });
+            const reloaded = documents.get(showPath);
+            expect(reloaded?.lastWatchedEpisodeId).toBe('s1e1');
+            expect(reloaded?.visibility).toBe('private');
+        });
+
+        it('un reset e una conferma concorrenti si serializzano: la conferma successiva al reset resta, con revisione coerente', async () => {
+            const { runtime } = createFakeFirestoreRuntime();
+            const store = createFirestoreTrackedShowStore(runtime);
+            const show = buildShow({ seasons: [buildSeason(1, 3)] });
+            await store.addShow(show);
+            await store.advanceProgress(show.id, 's1e1', 'fabio', TODAY);
+
+            const [resetOutcome, advanceOutcome] = await Promise.all([
+                store.resetProgress(show.id, { kind: 'notStarted' }, '2026-02-05T00:00:00.000Z', TODAY),
+                store.advanceProgress(show.id, 's1e2', 'fabio', TODAY)
+            ]);
+
+            expect(resetOutcome.outcome).toBe('applied');
+            expect(advanceOutcome.outcome).toBe('applied');
+            let latestShow: TrackedShow | undefined;
+            const unsubscribe = store.subscribeToShow(show.id, (candidate) => {
+                latestShow = candidate;
+            });
+            unsubscribe();
+            expect(latestShow?.lastWatchedEpisodeId).toBe('s1e2');
+            expect(latestShow?.progressRevision).toBe(3);
         });
     });
 

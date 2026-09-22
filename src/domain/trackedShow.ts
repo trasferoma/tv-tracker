@@ -34,6 +34,8 @@ export interface TrackedShow {
     readonly italianProviders: readonly ItalianProvider[];
     readonly selectedStreamingProviderId?: string | undefined;
     readonly selectedStreamingProviderName?: string | undefined;
+    readonly visibility?: 'shared' | 'private' | undefined;
+    readonly privateFor?: string | undefined;
     readonly lastWatchedEpisodeId?: string | undefined;
     readonly progressRevision: number;
     readonly addedAt: string;
@@ -58,4 +60,12 @@ export interface ProgressEvent {
 
 export type ProgressOutcome =
     | { readonly outcome: 'applied'; readonly show: TrackedShow; readonly event: ProgressEvent }
+    | { readonly outcome: 'rejected'; readonly reason: string };
+
+export type InitialPositionChoice =
+    | { readonly kind: 'notStarted' }
+    | { readonly kind: 'watchedThrough'; readonly episodeId: string };
+
+export type ResetProgressOutcome =
+    | { readonly outcome: 'applied'; readonly show: TrackedShow }
     | { readonly outcome: 'rejected'; readonly reason: string };

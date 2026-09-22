@@ -1,4 +1,12 @@
-import type { ItalianProvider, ProgressEvent, ProgressOutcome, TrackedShow } from '@/domain/trackedShow';
+import type { ShowAudience } from '@/domain/showVisibility';
+import type {
+    InitialPositionChoice,
+    ItalianProvider,
+    ProgressEvent,
+    ProgressOutcome,
+    ResetProgressOutcome,
+    TrackedShow
+} from '@/domain/trackedShow';
 
 export type Unsubscribe = () => void;
 
@@ -14,6 +22,10 @@ export type UpdateCatalogOutcome =
     | { readonly outcome: 'rejected'; readonly reason: string };
 
 export type ChangeProviderOutcome =
+    | { readonly outcome: 'changed' }
+    | { readonly outcome: 'rejected'; readonly reason: string };
+
+export type ChangeVisibilityOutcome =
     | { readonly outcome: 'changed' }
     | { readonly outcome: 'rejected'; readonly reason: string };
 
@@ -35,8 +47,15 @@ export interface TrackedShowStore {
         selectedProvider: ItalianProvider | undefined,
         updatedAt: string
     ): Promise<ChangeProviderOutcome>;
+    changeVisibility(id: string, targetAudience: ShowAudience, updatedAt: string): Promise<ChangeVisibilityOutcome>;
     advanceProgress(id: string, targetEpisodeId: string, confirmedBy: string, today: string): Promise<ProgressOutcome>;
     undoLastProgress(id: string, expectedRevision: number, undoneBy: string): Promise<ProgressOutcome>;
+    resetProgress(
+        id: string,
+        targetPosition: InitialPositionChoice,
+        resetAt: string,
+        today: string
+    ): Promise<ResetProgressOutcome>;
     removeShow(id: string): Promise<RemoveShowOutcome>;
     listAllProgressEvents(): Promise<readonly ProgressEvent[]>;
     replaceAllShows(

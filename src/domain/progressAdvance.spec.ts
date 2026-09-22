@@ -124,6 +124,15 @@ describe('advanceProgress', () => {
         expect(outcome.outcome).toBe('rejected');
     });
 
+    it('rifiuta un avanzamento verso un episodio senza data di uscita, perché non è considerato pubblicato', () => {
+        const episodeWithoutAirDate: Episode = { ...buildEpisode(1, 1), airDate: undefined };
+        const show = buildShow([{ providerSeasonId: 'season-1', seasonNumber: 1, episodes: [episodeWithoutAirDate] }]);
+
+        const outcome = advanceProgress(show, 's1e1', CONFIRMED_BY, CONFIRMED_AT, TODAY);
+
+        expect(outcome.outcome).toBe('rejected');
+    });
+
     it('rifiuta un avanzamento verso un episodio che non esiste nella sequenza', () => {
         const show = buildShow([buildSeason(1, 2)]);
 

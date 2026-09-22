@@ -77,8 +77,10 @@ function buildStore(overrides: Partial<TrackedShowStore> = {}): TrackedShowStore
         addShow: () => Promise.resolve({ outcome: 'added' }),
         updateCatalog: notImplemented,
         changeProvider: notImplemented,
+        changeVisibility: notImplemented,
         advanceProgress: notImplemented,
         undoLastProgress: notImplemented,
+        resetProgress: notImplemented,
         removeShow: notImplemented,
         listAllProgressEvents: notImplemented,
         replaceAllShows: notImplemented,
@@ -87,7 +89,14 @@ function buildStore(overrides: Partial<TrackedShowStore> = {}): TrackedShowStore
 }
 
 function buildDeps(overrides: AddShowDeps = {}): AddShowDeps {
-    return { debounceMs: 5, resolveNow: () => NOW, catalogSource: buildCatalogSource(), store: buildStore(), ...overrides };
+    return {
+        debounceMs: 5,
+        resolveNow: () => NOW,
+        resolveActiveProfileId: () => 'fabio',
+        catalogSource: buildCatalogSource(),
+        store: buildStore(),
+        ...overrides
+    };
 }
 
 function waitLongerThanDebounce(): Promise<void> {
@@ -255,6 +264,75 @@ describe('useAddShow — posizione iniziale senza ProgressEvent', () => {
 
         const savedShow = addShowSpy.mock.calls[0]![0];
         expect(savedShow.lastWatchedEpisodeId).toBeUndefined();
+    });
+});
+
+describe('useAddShow — criterio 1, visibilità iniziale', () => {
+    it('il default è «Per tutti»: la serie nasce condivisa senza privateFor', async () => {
+        const catalogShow = buildCatalogShow();
+        const addShowSpy = vi.fn<(show: TrackedShow) => Promise<AddShowOutcome>>().mockResolvedValue({ outcome: 'added' });
+        const catalogSource = buildCatalogSource({ loadShow: () => Promise.resolve({ outcome: 'found', show: catalogShow }) });
+        const store = buildStore({ addShow: addShowSpy });
+        const { controller } = mountAddShow(buildDeps({ store, catalogSource }));
+
+        expect(controller.visibilityChoice.value).toBe('shared');
+
+        await controller.chooseResult(buildSearchResultItem());
+        controller.chooseProvider(undefined);
+        await controller.save();
+
+        const savedShow = addShowSpy.mock.calls[0]![0];
+        expect(savedShow.visibility).toBe('shared');
+        expect(savedShow.privateFor).toBeUndefined();
+    });
+
+    it('«Solo per me» produce una serie privata del profilo attivo', async () => {
+        const catalogShow = buildCatalogShow();
+        const addShowSpy = vi.fn<(show: TrackedShow) => Promise<AddShowOutcome>>().mockResolvedValue({ outcome: 'added' });
+        const catalogSource = buildCatalogSource({ loadShow: () => Promise.resolve({ outcome: 'found', show: catalogShow }) });
+        const store = buildStore({ addShow: addShowSpy });
+        const { controller } = mountAddShow(buildDeps({ store, catalogSource, resolveActiveProfileId: () => 'irene' }));
+
+        await controller.chooseResult(buildSearchResultItem());
+        controller.chooseProvider(undefined);
+        controller.setVisibilityChoice('private');
+        await controller.save();
+
+        const savedShow = addShowSpy.mock.calls[0]![0];
+        expect(savedShow.visibility).toBe('private');
+        expect(savedShow.privateFor).toBe('irene');
+    });
+
+    it('backToSearch riporta la scelta di visibilità al default «Per tutti»', async () => {
+        const { controller } = mountAddShow(buildDeps());
+
+        await controller.chooseResult(buildSearchResultItem());
+        controller.setVisibilityChoice('private');
+        controller.backToSearch();
+
+        expect(controller.visibilityChoice.value).toBe('shared');
+    });
+});
+
+describe('useAddShow — criterio 8, il blocco dei duplicati usa l\'insieme del visibile', () => {
+    it('una serie privata dell\'altra persona, assente dal visibile, non blocca l\'inserimento', async () => {
+        const visibleProviderShowIds = { value: new Set<string>() };
+        const { controller } = mountAddShow(buildDeps({ trackedProviderShowIds: visibleProviderShowIds }));
+
+        await controller.chooseResult(buildSearchResultItem({ providerShowId: 'provider-1' }));
+
+        expect(controller.step.value).toBe('provider');
+        expect(controller.selectedShow.value).toBeDefined();
+    });
+
+    it('una scheda già visibile con lo stesso providerShowId blocca l\'inserimento', async () => {
+        const visibleProviderShowIds = { value: new Set(['provider-1']) };
+        const { controller } = mountAddShow(buildDeps({ trackedProviderShowIds: visibleProviderShowIds }));
+
+        await controller.chooseResult(buildSearchResultItem({ providerShowId: 'provider-1' }));
+
+        expect(controller.step.value).toBe('search');
+        expect(controller.searchStatus.value).toEqual({ kind: 'unavailable', reason: 'Questa serie è già stata aggiunta.' });
     });
 });
 

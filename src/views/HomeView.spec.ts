@@ -63,8 +63,10 @@ function buildStubStore(initialShows: readonly TrackedShow[]): TrackedShowStore 
         addShow: (): Promise<AddShowOutcome> => Promise.resolve({ outcome: 'added' }),
         updateCatalog: notImplemented,
         changeProvider: notImplemented,
+        changeVisibility: notImplemented,
         advanceProgress: notImplemented,
         undoLastProgress: notImplemented,
+        resetProgress: notImplemented,
         removeShow: notImplemented,
         listAllProgressEvents: notImplemented,
         replaceAllShows: notImplemented
@@ -267,14 +269,14 @@ describe('HomeView — visibilità delle serie completate', () => {
         mountedWrappers.push(wrapper);
         await flushPromises();
 
-        expect(wrapper.text()).toContain('Nessuna serie ancora');
-        expect(wrapper.find('.completed-toggle').text()).toBe('Mostra completate (1)');
+        expect(wrapper.text()).toContain('Le tue serie sono tutte completate');
+        expect(wrapper.find('.completed-toggle').text()).toBe('Mostra completate');
         expect(wrapper.findAll('.show')).toHaveLength(0);
 
         await wrapper.find('.completed-toggle').trigger('click');
         await flushPromises();
 
-        expect(wrapper.find('.completed-toggle').text()).toBe('Nascondi completate (1)');
+        expect(wrapper.find('.completed-toggle').text()).toBe('Nascondi completate');
         expect(wrapper.findAll('.show')).toHaveLength(1);
 
         vi.doUnmock('@/persistence/currentTrackedShowStore');
@@ -313,9 +315,79 @@ describe('HomeView — visibilità delle serie completate', () => {
         mountedWrappers.push(wrapper);
         await flushPromises();
 
-        expect(wrapper.text()).toContain('Nessuna serie ancora');
+        expect(wrapper.text()).toContain('Le tue serie sono tutte completate');
         expect(wrapper.find('#sortMode').exists()).toBe(true);
         expect(wrapper.find('.completed-toggle').exists()).toBe(true);
+
+        vi.doUnmock('@/persistence/currentTrackedShowStore');
+    });
+});
+
+describe('HomeView — lente di visibilità (criteri 3, 6, 7, 21)', () => {
+    it('mostra il controllo della lente accanto a «Mostra completate» quando ci sono serie', async () => {
+        vi.resetModules();
+        vi.doMock('@/persistence/currentTrackedShowStore', () => ({
+            currentTrackedShowStore: buildStubStore([buildShow()])
+        }));
+
+        const { default: HomeView } = await import('./HomeView.vue');
+        const wrapper = mount(HomeView, { global: { plugins: [testRouter] } });
+        mountedWrappers.push(wrapper);
+        await flushPromises();
+
+        const labels = wrapper.findAll('.scope-option').map((button) => button.text());
+        expect(labels).toEqual(['Tutto', 'Solo le mie']);
+
+        vi.doUnmock('@/persistence/currentTrackedShowStore');
+    });
+
+    it('mantiene il controllo della lente visibile e mostra lo stato vuoto dedicato quando la lente svuota la lista', async () => {
+        vi.resetModules();
+        globalThis.localStorage.setItem('tv-tracker:show-scope', 'mine');
+        vi.doMock('@/persistence/currentTrackedShowStore', () => ({
+            currentTrackedShowStore: buildStubStore([buildShow()])
+        }));
+
+        const { default: HomeView } = await import('./HomeView.vue');
+        const wrapper = mount(HomeView, { global: { plugins: [testRouter] } });
+        mountedWrappers.push(wrapper);
+        await flushPromises();
+
+        expect(wrapper.findAll('.scope-option')).toHaveLength(2);
+        expect(wrapper.text()).toContain('Nessuna serie solo tua');
+        expect(wrapper.text()).not.toContain('Nessuna serie ancora');
+        expect(wrapper.findAll('.show')).toHaveLength(0);
+
+        vi.doUnmock('@/persistence/currentTrackedShowStore');
+    });
+
+    it('non dichiara «Nessuna serie solo tua» quando una mia serie privata esiste ma è nascosta dal filtro delle completate', async () => {
+        vi.resetModules();
+        globalThis.localStorage.setItem('tv-tracker:show-scope', 'mine');
+        const myCompletedPrivateShow = buildShow({
+            id: 'mia-privata-completata',
+            providerShowId: 'p-mia-privata-completata',
+            title: 'Mia privata completata',
+            visibility: 'private',
+            privateFor: '',
+            lastWatchedEpisodeId: 's1e1'
+        });
+        vi.doMock('@/persistence/currentTrackedShowStore', () => ({
+            currentTrackedShowStore: buildStubStore([myCompletedPrivateShow])
+        }));
+
+        const { default: HomeView } = await import('./HomeView.vue');
+        const wrapper = mount(HomeView, { global: { plugins: [testRouter] } });
+        mountedWrappers.push(wrapper);
+        await flushPromises();
+
+        expect(wrapper.text()).not.toContain('Nessuna serie solo tua');
+        expect(wrapper.find('.completed-toggle').exists()).toBe(true);
+
+        await wrapper.find('.completed-toggle').trigger('click');
+        await flushPromises();
+
+        expect(wrapper.findAll('.show')).toHaveLength(1);
 
         vi.doUnmock('@/persistence/currentTrackedShowStore');
     });

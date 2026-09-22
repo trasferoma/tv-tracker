@@ -24,6 +24,7 @@ function buildShow(overrides: Partial<TrackedShow> = {}): TrackedShow {
         status: 'In corso',
         seasons: [buildSeason(1)],
         italianProviders: [],
+        visibility: 'shared',
         progressRevision: 0,
         addedAt: '2026-01-01T00:00:00.000Z',
         updatedAt: '2026-01-01T00:00:00.000Z',
@@ -33,7 +34,7 @@ function buildShow(overrides: Partial<TrackedShow> = {}): TrackedShow {
 
 function buildBackupContent(shows: readonly TrackedShow[]): string {
     return JSON.stringify({
-        formatVersion: 1,
+        formatVersion: 2,
         exportedAt: '2026-02-01T00:00:00.000Z',
         shows,
         progressEvents: []
@@ -62,7 +63,7 @@ describe('exportBackup', () => {
         await backup.exportBackup();
 
         expect(downloadSpy).toHaveBeenCalledExactlyOnceWith(
-            expect.objectContaining({ formatVersion: 1 }), 'tv-tracker-backup-2026-02-01.json');
+            expect.objectContaining({ formatVersion: 2 }), 'tv-tracker-backup-2026-02-01.json');
     });
 });
 
@@ -86,7 +87,7 @@ describe('prepareImport', () => {
         await localTrackedShowStore.addShow(existing);
         const backup = useBackup({ store: localTrackedShowStore });
 
-        await backup.prepareImport(JSON.stringify({ formatVersion: 2, exportedAt: '2026-01-01', shows: [], progressEvents: [] }));
+        await backup.prepareImport(JSON.stringify({ formatVersion: 3, exportedAt: '2026-01-01', shows: [], progressEvents: [] }));
 
         expect(backup.importReadiness.value.state).toBe('invalid');
         expect(await tvTrackerDatabase.trackedShows.toArray()).toEqual([existing]);
@@ -97,7 +98,7 @@ describe('prepareImport', () => {
         await localTrackedShowStore.addShow(existing);
         const backup = useBackup({ store: localTrackedShowStore });
 
-        await backup.prepareImport(JSON.stringify({ formatVersion: 1 }));
+        await backup.prepareImport(JSON.stringify({ formatVersion: 2 }));
 
         expect(backup.importReadiness.value.state).toBe('invalid');
         expect(await tvTrackerDatabase.trackedShows.toArray()).toEqual([existing]);

@@ -58,8 +58,10 @@ function buildStore(overrides: Partial<TrackedShowStore> = {}): TrackedShowStore
         addShow: () => Promise.resolve({ outcome: 'added' }),
         updateCatalog: notImplemented,
         changeProvider: notImplemented,
+        changeVisibility: notImplemented,
         advanceProgress: notImplemented,
         undoLastProgress: notImplemented,
+        resetProgress: notImplemented,
         removeShow: notImplemented,
         listAllProgressEvents: notImplemented,
         replaceAllShows: notImplemented,
@@ -243,6 +245,48 @@ describe('AddShowDialog — posizione iniziale limitata agli episodi già usciti
         const positionChoices = wrapper.findAll('.position-choice');
         expect(positionChoices).toHaveLength(1);
         expect(positionChoices[0]?.text()).toBe('Da iniziare');
+    });
+});
+
+describe('AddShowDialog — visibilità della serie all\'inserimento', () => {
+    it('di default la scelta è «Per tutti»', async () => {
+        const wrapper = mountDialog(buildDeps());
+
+        await wrapper.find('.search').setValue('scissione');
+        await waitLongerThanDebounce();
+        await nextTick();
+        await wrapper.find('.result').trigger('click');
+        await waitLongerThanDebounce();
+        await nextTick();
+        await wrapper.find('.provider-step .primary').trigger('click');
+        await nextTick();
+
+        const buttons = wrapper.findAll('.visibility-choice');
+        expect(buttons[0]?.attributes('aria-pressed')).toBe('true');
+        expect(buttons[1]?.attributes('aria-pressed')).toBe('false');
+    });
+
+    it('scegliendo «Solo per me» la serie viene salvata privata del profilo attivo', async () => {
+        const addShowSpy = vi.fn<(show: TrackedShow) => Promise<AddShowOutcome>>().mockResolvedValue({ outcome: 'added' });
+        const store = buildStore({ addShow: addShowSpy });
+        const wrapper = mountDialog(buildDeps({ store, resolveActiveProfileId: () => 'irene' }));
+
+        await wrapper.find('.search').setValue('scissione');
+        await waitLongerThanDebounce();
+        await nextTick();
+        await wrapper.find('.result').trigger('click');
+        await waitLongerThanDebounce();
+        await nextTick();
+        await wrapper.find('.provider-step .primary').trigger('click');
+        await nextTick();
+
+        await wrapper.findAll('.visibility-choice')[1]?.trigger('click');
+        await wrapper.find('.primary').trigger('click');
+        await flushDialogSave();
+
+        const savedShow = addShowSpy.mock.calls[0]?.[0];
+        expect(savedShow?.visibility).toBe('private');
+        expect(savedShow?.privateFor).toBe('irene');
     });
 });
 

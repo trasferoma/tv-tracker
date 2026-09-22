@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 
 import type { ShowListItem } from '@/composables/useTrackedShows';
+import PrivateShowDot from '@/components/show/PrivateShowDot.vue';
 import ShowBadge from '@/components/show/ShowBadge.vue';
 
 const props = defineProps<{
@@ -33,6 +34,10 @@ function requestWatch(): void {
           <div class="title">
             {{ item.title }}
           </div>
+          <PrivateShowDot
+            v-if="item.privateProfileId !== undefined"
+            :profile-id="item.privateProfileId"
+          />
         </div>
         <ShowBadge
           :label="item.badgeLabel"

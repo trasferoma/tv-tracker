@@ -124,6 +124,7 @@ function trapFocus(event: KeyboardEvent): void {
     <div class="confirm-body">
       <h2>{{ title }}</h2>
       <p>{{ message }}</p>
+      <slot />
       <div class="confirm-actions">
         <button
           type="button"

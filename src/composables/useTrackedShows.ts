@@ -8,6 +8,7 @@ import { toCatalogDate } from '@/domain/catalogDate';
 import { generateId } from '@/domain/identity';
 import { selectPosterUrl } from '@/domain/seasonPoster';
 import { sortShows, type ShowSortMode } from '@/domain/showSorting';
+import { isVisibleToProfile, matchesScope, resolveShowAudience, type ShowScope } from '@/domain/showVisibility';
 import type { ItalianProvider, ProgressOutcome, TrackedShow } from '@/domain/trackedShow';
 import { calculateWatchPosition, type WatchPosition } from '@/domain/watchPosition';
 import { isLocalMode } from '@/localMode';
@@ -41,6 +42,7 @@ export interface ShowListItem {
     readonly canConfirmWatched: boolean;
     readonly firstUnwatchedEpisodeId: string | undefined;
     readonly errorMessage: string | undefined;
+    readonly privateProfileId: string | undefined;
 }
 
 export interface PendingWatchConfirmation {
@@ -63,6 +65,7 @@ export interface UseTrackedShows {
     readonly trackedProviderShowIds: ComputedRef<ReadonlySet<string>>;
     readonly completedCount: ComputedRef<number>;
     readonly hasTrackedShows: ComputedRef<boolean>;
+    readonly hasScopedShows: ComputedRef<boolean>;
     readonly pendingWatch: Ref<PendingWatchConfirmation | undefined>;
     requestWatch(showId: string): void;
     cancelPendingWatch(): void;
@@ -87,6 +90,7 @@ interface ShowComputationDegraded {
 export function useTrackedShows(
     sortMode: Ref<ShowSortMode>,
     showCompleted: Ref<boolean>,
+    scope: Ref<ShowScope>,
     deps: TrackedShowsDeps = {}
 ): UseTrackedShows {
     const store = deps.store ?? currentTrackedShowStore;
@@ -108,23 +112,35 @@ export function useTrackedShows(
         unsubscribe?.();
     });
 
+    const activeProfileId = computed(() => resolveActiveProfileId());
+
     const entries = computed<readonly ShowComputation[]>(() => {
         const today = resolveToday();
         return rawShows.value.map((show) => computeShowEntry(show, today));
     });
 
+    const visibleEntries = computed<readonly ShowComputation[]>(() =>
+        entries.value.filter((entry) => isVisibleToProfile(entry.show, activeProfileId.value)));
+
+    const visibleShows = computed<readonly TrackedShow[]>(() => visibleEntries.value.map((entry) => entry.show));
+
+    const scopedEntries = computed<readonly ShowComputation[]>(() =>
+        visibleEntries.value.filter((entry) => matchesScope(entry.show, activeProfileId.value, scope.value)));
+
     const listItems = computed<readonly ShowListItem[]>(() =>
-        sortEntries(entries.value, sortMode.value)
+        sortEntries(scopedEntries.value, sortMode.value)
             .filter((entry) => showCompleted.value || !isCompletedEntry(entry))
             .map(toListItem));
 
-    const summaryText = computed(() => buildSummaryText(entries.value));
+    const summaryText = computed(() => buildSummaryText(visibleEntries.value));
 
-    const trackedProviderShowIds = computed<ReadonlySet<string>>(() => toProviderShowIdSet(rawShows.value));
+    const trackedProviderShowIds = computed<ReadonlySet<string>>(() => toProviderShowIdSet(visibleShows.value));
 
-    const completedCount = computed<number>(() => entries.value.filter(isCompletedEntry).length);
+    const completedCount = computed<number>(() => scopedEntries.value.filter(isCompletedEntry).length);
 
-    const hasTrackedShows = computed<boolean>(() => rawShows.value.length > 0);
+    const hasTrackedShows = computed<boolean>(() => visibleEntries.value.length > 0);
+
+    const hasScopedShows = computed<boolean>(() => scopedEntries.value.length > 0);
 
     function requestWatch(showId: string): void {
         const item = listItems.value.find((candidate) => candidate.id === showId);
@@ -187,6 +203,7 @@ export function useTrackedShows(
         trackedProviderShowIds,
         completedCount,
         hasTrackedShows,
+        hasScopedShows,
         pendingWatch,
         requestWatch,
         cancelPendingWatch,
@@ -252,13 +269,23 @@ function buildSummaryText(entries: readonly ShowComputation[]): string {
     return formatNewEpisodesSummary(newEpisodesCount, showsWithNewEpisodesCount);
 }
 
-function toListItem(entry: ShowComputation): ShowListItem {
-    return isHealthyEntry(entry)
-        ? buildHealthyListItem(entry.show, entry.watchPosition)
-        : buildDegradedListItem(entry.show, entry.errorMessage);
+interface ShowPrivacyMarker {
+    readonly privateProfileId: string | undefined;
 }
 
-function buildDegradedListItem(show: TrackedShow, errorMessage: string): ShowListItem {
+function derivePrivacyMarker(show: TrackedShow): ShowPrivacyMarker {
+    const audience = resolveShowAudience(show);
+    return { privateProfileId: audience.kind === 'private' ? audience.profileId : undefined };
+}
+
+function toListItem(entry: ShowComputation): ShowListItem {
+    const privacyMarker = derivePrivacyMarker(entry.show);
+    return isHealthyEntry(entry)
+        ? buildHealthyListItem(entry.show, entry.watchPosition, privacyMarker)
+        : buildDegradedListItem(entry.show, entry.errorMessage, privacyMarker);
+}
+
+function buildDegradedListItem(show: TrackedShow, errorMessage: string, privacyMarker: ShowPrivacyMarker): ShowListItem {
     return {
         id: show.id,
         title: show.title,
@@ -271,11 +298,16 @@ function buildDegradedListItem(show: TrackedShow, errorMessage: string): ShowLis
         upcomingLabel: undefined,
         canConfirmWatched: false,
         firstUnwatchedEpisodeId: undefined,
-        errorMessage
+        errorMessage,
+        ...privacyMarker
     };
 }
 
-function buildHealthyListItem(show: TrackedShow, watchPosition: WatchPosition): ShowListItem {
+function buildHealthyListItem(
+    show: TrackedShow,
+    watchPosition: WatchPosition,
+    privacyMarker: ShowPrivacyMarker
+): ShowListItem {
     const episodeSection = buildEpisodeSection(show, watchPosition);
     return {
         id: show.id,
@@ -289,7 +321,8 @@ function buildHealthyListItem(show: TrackedShow, watchPosition: WatchPosition): 
         upcomingLabel: buildUpcomingLabel(watchPosition),
         canConfirmWatched: watchPosition.firstUnwatchedEpisode !== undefined,
         firstUnwatchedEpisodeId: watchPosition.firstUnwatchedEpisode?.providerEpisodeId,
-        errorMessage: undefined
+        errorMessage: undefined,
+        ...privacyMarker
     };
 }
 

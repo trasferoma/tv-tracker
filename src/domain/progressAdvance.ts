@@ -47,7 +47,7 @@ function isForwardTarget(
 }
 
 function isFutureEpisode(episode: Episode, today: string): boolean {
-    return episode.airDate !== undefined && !isAlreadyPublished(episode.airDate, today);
+    return !isAlreadyPublished(episode.airDate, today);
 }
 
 function buildAdvanceEvent(

@@ -26,8 +26,10 @@ function buildEmptyStore(): TrackedShowStore {
         addShow: (): Promise<AddShowOutcome> => Promise.resolve({ outcome: 'added' }),
         updateCatalog: notImplemented,
         changeProvider: notImplemented,
+        changeVisibility: notImplemented,
         advanceProgress: notImplemented,
         undoLastProgress: notImplemented,
+        resetProgress: notImplemented,
         removeShow: notImplemented,
         listAllProgressEvents: notImplemented,
         replaceAllShows: notImplemented

@@ -1,20 +1,24 @@
 import { computed, onUnmounted, ref, watch, type ComputedRef, type Ref } from 'vue';
 
 import { matchSessionState, session } from '@/auth/session';
-import { compareCatalogDates, toCatalogDate } from '@/domain/catalogDate';
+import { isAlreadyPublished, toCatalogDate } from '@/domain/catalogDate';
 import { buildEpisodeSequence, positionOfEpisode } from '@/domain/episodeOrder';
 import { selectPosterUrl } from '@/domain/seasonPoster';
+import { resolveShowAudience, type ShowAudience } from '@/domain/showVisibility';
 import {
     SPECIAL_SEASON_NUMBER,
     type Episode,
+    type InitialPositionChoice,
     type ItalianProvider,
     type ProgressOutcome,
+    type ResetProgressOutcome,
     type TrackedShow
 } from '@/domain/trackedShow';
 import { calculateWatchPosition, type WatchPosition } from '@/domain/watchPosition';
 import { currentTrackedShowStore } from '@/persistence/currentTrackedShowStore';
 import type {
     ChangeProviderOutcome,
+    ChangeVisibilityOutcome,
     RemoveShowOutcome,
     TrackedShowStore,
     Unsubscribe
@@ -24,6 +28,7 @@ import { formatBacklogHeadline, formatCatalogDate, formatEpisodeHeadline, format
 const MISALIGNED_TITLE = 'Dati non allineati';
 const MISALIGNED_MESSAGE = 'I dati di questa serie non sono allineati: aggiorna il catalogo per correggerla.';
 const NOT_MARKABLE_LABEL = 'Non ancora uscita';
+const RESET_START_LABEL = 'l\'inizio della serie';
 
 export interface EpisodeRowView {
     readonly id: string;
@@ -56,6 +61,8 @@ export interface ShowDetailContent {
     readonly providers: readonly ItalianProvider[];
     readonly selectedProviderId: string | undefined;
     readonly canUndo: boolean;
+    readonly audience: ShowAudience;
+    readonly resettableEpisodes: readonly Episode[];
 }
 
 export type ShowDetailStatus =
@@ -81,6 +88,11 @@ export interface UseShowDetail {
     readonly pendingWatch: Ref<PendingWatch | undefined>;
     readonly pendingUndo: Ref<boolean>;
     readonly pendingRemove: Ref<boolean>;
+    readonly pendingReset: Ref<boolean>;
+    readonly resetTargetPosition: Ref<InitialPositionChoice>;
+    readonly resetConfirmationMessage: ComputedRef<string>;
+    readonly canReset: ComputedRef<boolean>;
+    readonly resetSuggestionVisible: Ref<boolean>;
     requestWatch(episodeId: string): void;
     cancelPendingWatch(): void;
     confirmPendingWatch(): Promise<ProgressOutcome | undefined>;
@@ -91,6 +103,12 @@ export interface UseShowDetail {
     cancelPendingRemove(): void;
     confirmPendingRemove(): Promise<RemoveShowOutcome | undefined>;
     changeProvider(providerId: string | undefined): Promise<ChangeProviderOutcome | undefined>;
+    changeVisibility(targetKind: ShowAudience['kind']): Promise<ChangeVisibilityOutcome | undefined>;
+    dismissResetSuggestion(): void;
+    setResetTargetPosition(position: InitialPositionChoice): void;
+    requestReset(): void;
+    cancelPendingReset(): void;
+    confirmPendingReset(): Promise<ResetProgressOutcome | undefined>;
 }
 
 export function useShowDetail(id: Ref<string>, deps: ShowDetailDeps = {}): UseShowDetail {
@@ -104,6 +122,9 @@ export function useShowDetail(id: Ref<string>, deps: ShowDetailDeps = {}): UseSh
     const pendingWatch = ref<PendingWatch>();
     const pendingUndo = ref(false);
     const pendingRemove = ref(false);
+    const pendingReset = ref(false);
+    const resetTargetPosition = ref<InitialPositionChoice>({ kind: 'notStarted' });
+    const resetSuggestionVisible = ref(false);
 
     let unsubscribe: Unsubscribe | undefined;
 
@@ -122,6 +143,16 @@ export function useShowDetail(id: Ref<string>, deps: ShowDetailDeps = {}): UseSh
     });
 
     const status = computed<ShowDetailStatus>(() => resolveStatus(show.value, hasReceivedShow.value, resolveToday()));
+    const canReset = computed<boolean>(() => status.value.kind === 'ready');
+    const resetConfirmationMessage = computed<string>(() => {
+        const currentShow = show.value;
+        if (currentShow === undefined) {
+            return '';
+        }
+        const audience = resolveShowAudience(currentShow);
+        const today = resolveToday();
+        return buildResetConfirmationMessage(currentShow, audience, resetTargetPosition.value, today);
+    });
 
     function requestWatch(episodeId: string): void {
         const headline = findMarkableEpisodeHeadline(status.value, episodeId);
@@ -190,11 +221,66 @@ export function useShowDetail(id: Ref<string>, deps: ShowDetailDeps = {}): UseSh
         return store.changeProvider(currentShow.id, selectedProvider, updatedAt);
     }
 
+    async function changeVisibility(targetKind: ShowAudience['kind']): Promise<ChangeVisibilityOutcome | undefined> {
+        const currentShow = show.value;
+        if (currentShow === undefined) {
+            return undefined;
+        }
+        resetSuggestionVisible.value = false;
+        const activeProfileId = resolveActiveProfileId();
+        const targetAudience = buildTargetAudience(targetKind, activeProfileId);
+        const updatedAt = resolveNow();
+        const outcome = await store.changeVisibility(currentShow.id, targetAudience, updatedAt);
+        if (outcome.outcome === 'changed' && targetKind === 'shared') {
+            resetSuggestionVisible.value = true;
+        }
+        return outcome;
+    }
+
+    function dismissResetSuggestion(): void {
+        resetSuggestionVisible.value = false;
+    }
+
+    function setResetTargetPosition(position: InitialPositionChoice): void {
+        resetTargetPosition.value = position;
+    }
+
+    function requestReset(): void {
+        if (!canReset.value) {
+            return;
+        }
+        resetTargetPosition.value = { kind: 'notStarted' };
+        pendingReset.value = true;
+    }
+
+    function cancelPendingReset(): void {
+        pendingReset.value = false;
+    }
+
+    async function confirmPendingReset(): Promise<ResetProgressOutcome | undefined> {
+        if (!pendingReset.value) {
+            return undefined;
+        }
+        pendingReset.value = false;
+        const currentShow = show.value;
+        if (currentShow === undefined) {
+            return undefined;
+        }
+        const resetAt = resolveNow();
+        const today = resolveToday();
+        return store.resetProgress(currentShow.id, resetTargetPosition.value, resetAt, today);
+    }
+
     return {
         status,
         pendingWatch,
         pendingUndo,
         pendingRemove,
+        pendingReset,
+        resetTargetPosition,
+        resetConfirmationMessage,
+        canReset,
+        resetSuggestionVisible,
         requestWatch,
         cancelPendingWatch,
         confirmPendingWatch,
@@ -204,7 +290,13 @@ export function useShowDetail(id: Ref<string>, deps: ShowDetailDeps = {}): UseSh
         requestRemove,
         cancelPendingRemove,
         confirmPendingRemove,
-        changeProvider
+        changeProvider,
+        changeVisibility,
+        dismissResetSuggestion,
+        setResetTargetPosition,
+        requestReset,
+        cancelPendingReset,
+        confirmPendingReset
     };
 }
 
@@ -244,6 +336,8 @@ function buildContent(show: TrackedShow, watchPosition: WatchPosition, today: st
     const backlogHeadline = formatBacklogHeadline(watchPosition.backlogCount);
     const upcomingHeadline = buildUpcomingHeadline(watchPosition.nextUpcomingEpisode);
     const specials = buildSpecials(show);
+    const audience = resolveShowAudience(show);
+    const resettableEpisodes = resettableEpisodesFor(show, today);
     return {
         id: show.id,
         title: show.title,
@@ -254,8 +348,44 @@ function buildContent(show: TrackedShow, watchPosition: WatchPosition, today: st
         specials,
         providers: show.italianProviders,
         selectedProviderId: show.selectedStreamingProviderId,
-        canUndo: show.lastViewedAt !== undefined
+        canUndo: show.lastViewedAt !== undefined,
+        audience,
+        resettableEpisodes
     };
+}
+
+function resettableEpisodesFor(show: TrackedShow, today: string): readonly Episode[] {
+    return buildEpisodeSequence(show).filter((episode) => !isFutureEpisode(episode, today));
+}
+
+function buildTargetAudience(kind: ShowAudience['kind'], activeProfileId: string): ShowAudience {
+    return kind === 'shared' ? { kind: 'shared' } : { kind: 'private', profileId: activeProfileId };
+}
+
+function buildResetConfirmationMessage(
+    show: TrackedShow,
+    audience: ShowAudience,
+    targetPosition: InitialPositionChoice,
+    today: string
+): string {
+    const target = resolveResetTargetLabel(show, targetPosition, today);
+    const body = `Il tracciamento riparte da ${target} e le conferme registrate finora vengono cancellate. L'operazione non si può annullare.`;
+    if (audience.kind !== 'shared') {
+        return body;
+    }
+    return `“${show.title}” è condivisa: l'azzeramento vale per entrambi. ${body}`;
+}
+
+function resolveResetTargetLabel(show: TrackedShow, targetPosition: InitialPositionChoice, today: string): string {
+    if (targetPosition.kind === 'notStarted') {
+        return RESET_START_LABEL;
+    }
+    const resettableEpisodes = resettableEpisodesFor(show, today);
+    const targetEpisode = resettableEpisodes.find((episode) => episode.providerEpisodeId === targetPosition.episodeId);
+    if (targetEpisode === undefined) {
+        return RESET_START_LABEL;
+    }
+    return formatEpisodeHeadline(targetEpisode.seasonNumber, targetEpisode.episodeNumber, targetEpisode.title);
 }
 
 function resolveUnwatchedEpisodes(show: TrackedShow, watchPosition: WatchPosition): readonly Episode[] {
@@ -327,7 +457,7 @@ function toUpcomingBox(episode: Episode): UpcomingBoxView {
 }
 
 function isFutureEpisode(episode: Episode, today: string): boolean {
-    return episode.airDate !== undefined && compareCatalogDates(episode.airDate, today) > 0;
+    return !isAlreadyPublished(episode.airDate, today);
 }
 
 function buildSpecials(show: TrackedShow): readonly EpisodeRowView[] {

@@ -35,6 +35,7 @@ import {
 import type {
     AddShowOutcome,
     ChangeProviderOutcome,
+    ChangeVisibilityOutcome,
     RemoveShowOutcome,
     ReplaceAllShowsOutcome,
     TrackedShowListener,
@@ -45,8 +46,17 @@ import type {
 } from './trackedShowStore';
 import { getFirebaseAuth } from '@/auth/firebaseApp';
 import { advanceProgress as computeAdvance } from '@/domain/progressAdvance';
+import { resetProgress as computeReset } from '@/domain/progressReset';
 import { undoLastProgress as computeUndo } from '@/domain/progressUndo';
-import type { ItalianProvider, ProgressEvent, ProgressOutcome, TrackedShow } from '@/domain/trackedShow';
+import { resolveShowAudience, withPrivateVisibility, withSharedVisibility, type ShowAudience } from '@/domain/showVisibility';
+import type {
+    InitialPositionChoice,
+    ItalianProvider,
+    ProgressEvent,
+    ProgressOutcome,
+    ResetProgressOutcome,
+    TrackedShow
+} from '@/domain/trackedShow';
 
 const HOUSEHOLDS_COLLECTION = 'households';
 const TRACKED_SHOWS_COLLECTION = 'trackedShows';
@@ -55,6 +65,10 @@ const MAX_BATCH_WRITE_OPERATIONS = 400;
 
 const SHOW_NOT_FOUND_REASON = 'La serie non esiste più: potrebbe essere stata rimossa da un altro dispositivo.';
 const DUPLICATE_SHOW_REASON = 'Questa serie è già stata aggiunta.';
+const VISIBILITY_COLLISION_REASONS: Record<ShowAudience['kind'], string> = {
+    shared: 'Questa serie è già condivisa in una scheda a parte: rimuovine una prima di renderla condivisa.',
+    private: 'Hai già una scheda solo tua di questa serie: rimuovila prima di rendere privata anche questa.'
+};
 const REPLACE_FAILURE_REASON = 'La sostituzione dei dati non è riuscita per intero: alcune serie potrebbero ' +
     'risultare mancanti o incomplete. Riprova; se il problema persiste verifica la connessione.';
 
@@ -252,15 +266,41 @@ function subscribeToShow(runtime: FirestoreRuntime, id: string, listener: Tracke
     });
 }
 
+function audiencesCollide(first: ShowAudience, second: ShowAudience): boolean {
+    if (first.kind === 'shared' && second.kind === 'shared') {
+        return true;
+    }
+    return first.kind === 'private' && second.kind === 'private' && first.profileId === second.profileId;
+}
+
+async function findShowsByProviderShowId(
+    runtime: FirestoreRuntime,
+    firestore: Firestore,
+    providerShowId: string
+): Promise<readonly TrackedShow[]> {
+    const providerShowQuery = runtime.query(
+        trackedShowsCollectionRef(runtime, firestore),
+        runtime.where('providerShowId', '==', providerShowId)
+    );
+    const snapshot = await runtime.getDocs(providerShowQuery);
+    return snapshot.docs.map(readTrackedShowSnapshot);
+}
+
+async function findDuplicateForAudience(
+    runtime: FirestoreRuntime,
+    firestore: Firestore,
+    providerShowId: string,
+    targetAudience: ShowAudience
+): Promise<TrackedShow | undefined> {
+    const candidates = await findShowsByProviderShowId(runtime, firestore, providerShowId);
+    return candidates.find((candidate) => audiencesCollide(resolveShowAudience(candidate), targetAudience));
+}
+
 async function addShow(runtime: FirestoreRuntime, show: TrackedShow): Promise<AddShowOutcome> {
     const firestore = runtime.getFirestore();
-    const duplicateQuery = runtime.query(
-        trackedShowsCollectionRef(runtime, firestore),
-        runtime.where('providerShowId', '==', show.providerShowId),
-        runtime.limit(1)
-    );
-    const duplicateSnapshot = await runtime.getDocs(duplicateQuery);
-    if (!duplicateSnapshot.empty) {
+    const targetAudience = resolveShowAudience(show);
+    const duplicate = await findDuplicateForAudience(runtime, firestore, show.providerShowId, targetAudience);
+    if (duplicate !== undefined) {
         return { outcome: 'rejected', reason: DUPLICATE_SHOW_REASON };
     }
     await runtime.setDoc(trackedShowDocRef(runtime, firestore, show.id), show);
@@ -298,6 +338,54 @@ async function changeProvider(
     };
     await runtime.setDoc(showRef, updatedShow);
     return { outcome: 'changed' };
+}
+
+function applyAudience(show: TrackedShow, targetAudience: ShowAudience, updatedAt: string): TrackedShow {
+    const showWithNewAudience = targetAudience.kind === 'shared'
+        ? withSharedVisibility(show)
+        : withPrivateVisibility(show, targetAudience.profileId);
+    return { ...showWithNewAudience, updatedAt };
+}
+
+async function findVisibilityCollision(
+    runtime: FirestoreRuntime,
+    firestore: Firestore,
+    show: TrackedShow,
+    targetAudience: ShowAudience
+): Promise<TrackedShow | undefined> {
+    const candidates = await findShowsByProviderShowId(runtime, firestore, show.providerShowId);
+    return candidates.find(
+        (candidate) => candidate.id !== show.id && audiencesCollide(resolveShowAudience(candidate), targetAudience)
+    );
+}
+
+async function changeVisibility(
+    runtime: FirestoreRuntime,
+    id: string,
+    targetAudience: ShowAudience,
+    updatedAt: string
+): Promise<ChangeVisibilityOutcome> {
+    const firestore = runtime.getFirestore();
+    const showRef = trackedShowDocRef(runtime, firestore, id);
+    const existing = await runtime.getDoc(showRef);
+    if (!existing.exists()) {
+        return { outcome: 'rejected', reason: SHOW_NOT_FOUND_REASON };
+    }
+    const show = readTrackedShowSnapshot(existing);
+    const collision = await findVisibilityCollision(runtime, firestore, show, targetAudience);
+    if (collision !== undefined) {
+        return { outcome: 'rejected', reason: VISIBILITY_COLLISION_REASONS[targetAudience.kind] };
+    }
+    return runtime.runTransaction(firestore, async (transaction) => {
+        const showSnapshot = await transaction.get(showRef);
+        if (!showSnapshot.exists()) {
+            return { outcome: 'rejected', reason: SHOW_NOT_FOUND_REASON };
+        }
+        const freshShow = readTrackedShowSnapshot(showSnapshot);
+        const updatedShow = applyAudience(freshShow, targetAudience, updatedAt);
+        transaction.set(showRef, updatedShow);
+        return { outcome: 'changed' };
+    });
 }
 
 async function advanceProgress(
@@ -357,6 +445,35 @@ async function undoLastProgress(
         });
         return outcome;
     });
+}
+
+async function resetProgress(
+    runtime: FirestoreRuntime,
+    id: string,
+    targetPosition: InitialPositionChoice,
+    resetAt: string,
+    today: string
+): Promise<ResetProgressOutcome> {
+    const firestore = runtime.getFirestore();
+    const showRef = trackedShowDocRef(runtime, firestore, id);
+    const outcome = await runtime.runTransaction<ResetProgressOutcome>(firestore, async (transaction) => {
+        const showSnapshot = await transaction.get(showRef);
+        if (!showSnapshot.exists()) {
+            return { outcome: 'rejected', reason: SHOW_NOT_FOUND_REASON };
+        }
+        const freshShow = readTrackedShowSnapshot(showSnapshot);
+        const resetOutcome = computeReset(freshShow, targetPosition, resetAt, today);
+        if (resetOutcome.outcome === 'applied') {
+            transaction.set(showRef, resetOutcome.show);
+        }
+        return resetOutcome;
+    });
+    if (outcome.outcome === 'rejected') {
+        return outcome;
+    }
+    const deleteEventsOperations = await buildDeleteEventsOperations(runtime, firestore, id);
+    await commitInBatches(runtime, firestore, deleteEventsOperations);
+    return outcome;
 }
 
 async function removeShow(runtime: FirestoreRuntime, id: string): Promise<RemoveShowOutcome> {
@@ -470,9 +587,11 @@ export function createFirestoreTrackedShowStore(runtime: FirestoreRuntime = defa
         addShow: (show) => addShow(runtime, show),
         updateCatalog: (show) => updateCatalog(runtime, show),
         changeProvider: (id, selectedProvider, updatedAt) => changeProvider(runtime, id, selectedProvider, updatedAt),
+        changeVisibility: (id, targetAudience, updatedAt) => changeVisibility(runtime, id, targetAudience, updatedAt),
         advanceProgress: (id, targetEpisodeId, confirmedBy, today) =>
             advanceProgress(runtime, id, targetEpisodeId, confirmedBy, today),
         undoLastProgress: (id, expectedRevision, undoneBy) => undoLastProgress(runtime, id, expectedRevision, undoneBy),
+        resetProgress: (id, targetPosition, resetAt, today) => resetProgress(runtime, id, targetPosition, resetAt, today),
         removeShow: (id) => removeShow(runtime, id),
         listAllProgressEvents: () => listAllProgressEvents(runtime),
         replaceAllShows: (shows, progressEvents) => replaceAllShows(runtime, shows, progressEvents)

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { backupFileName, buildBackupFile, collectProgressEvents, collectShowsSnapshot } from './backupExport';
+import { validateBackupFile } from './backupValidation';
 import type { Episode, ProgressEvent, Season, TrackedShow } from '@/domain/trackedShow';
 import type {
     ChangeProviderOutcome,
@@ -17,7 +18,7 @@ function buildSeason(seasonNumber: number): Season {
     return { providerSeasonId: `season-${seasonNumber}`, seasonNumber, episodes: [buildEpisode(seasonNumber, 1)] };
 }
 
-function buildShow(id: string): TrackedShow {
+function buildShow(id: string, overrides: Partial<TrackedShow> = {}): TrackedShow {
     return {
         id,
         catalogProvider: 'tmdb',
@@ -26,9 +27,11 @@ function buildShow(id: string): TrackedShow {
         status: 'In corso',
         seasons: [buildSeason(1)],
         italianProviders: [],
+        visibility: 'shared',
         progressRevision: 0,
         addedAt: '2026-01-01T00:00:00.000Z',
-        updatedAt: '2026-01-01T00:00:00.000Z'
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        ...overrides
     };
 }
 
@@ -62,8 +65,10 @@ function buildStoreWithSnapshot(
         addShow: notImplemented,
         updateCatalog: notImplemented,
         changeProvider: (): Promise<ChangeProviderOutcome> => Promise.reject(new Error('non usato in questo test')),
+        changeVisibility: notImplemented,
         advanceProgress: notImplemented,
         undoLastProgress: notImplemented,
+        resetProgress: notImplemented,
         removeShow: notImplemented,
         listAllProgressEvents: () => Promise.resolve(allProgressEvents),
         replaceAllShows: () => Promise.reject(new Error('non usato in questo test'))
@@ -71,17 +76,43 @@ function buildStoreWithSnapshot(
 }
 
 describe('buildBackupFile', () => {
-    it('produce formatVersion 1, l\'istante di esportazione e l\'elenco completo di serie ed eventi', () => {
+    it('produce formatVersion 2, l\'istante di esportazione e l\'elenco completo di serie ed eventi', () => {
         const shows = [buildShow('show-1')];
         const progressEvents = [buildEvent('event-1', 'show-1')];
         const exportedAt = new Date(2026, 0, 20, 10, 30);
 
         const backup = buildBackupFile(shows, progressEvents, exportedAt);
 
-        expect(backup.formatVersion).toBe(1);
+        expect(backup.formatVersion).toBe(2);
         expect(backup.exportedAt).toBe(exportedAt.toISOString());
         expect(backup.shows).toEqual(shows);
         expect(backup.progressEvents).toEqual(progressEvents);
+    });
+
+    it('normalizza a condivisa una serie priva del campo di visibilità, così il file supera la propria validazione', () => {
+        const legacyShow = buildShow('show-1', { visibility: undefined });
+        const exportedAt = new Date(2026, 0, 20, 10, 30);
+
+        const backup = buildBackupFile([legacyShow], [], exportedAt);
+
+        expect(backup.shows[0]?.visibility).toBe('shared');
+        expect(backup.shows[0]?.privateFor).toBeUndefined();
+        const fileContent = JSON.parse(JSON.stringify(backup)) as unknown;
+        const validation = validateBackupFile(fileContent);
+        expect(validation.valid).toBe(true);
+    });
+
+    it('conserva la serie privata con il suo proprietario nel file esportato', () => {
+        const privateShow = buildShow('show-1', { visibility: 'private', privateFor: 'fabio' });
+        const exportedAt = new Date(2026, 0, 20, 10, 30);
+
+        const backup = buildBackupFile([privateShow], [], exportedAt);
+
+        expect(backup.shows[0]?.visibility).toBe('private');
+        expect(backup.shows[0]?.privateFor).toBe('fabio');
+        const fileContent = JSON.parse(JSON.stringify(backup)) as unknown;
+        const validation = validateBackupFile(fileContent);
+        expect(validation.valid).toBe(true);
     });
 });
 

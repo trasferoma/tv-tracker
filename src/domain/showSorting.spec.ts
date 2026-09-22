@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { advanceProgress } from './progressAdvance';
+import { resetProgress } from './progressReset';
 import { undoLastProgress } from './progressUndo';
 import type { ShowSortMode, SortableShow } from './showSorting';
 import { sortShows } from './showSorting';
@@ -324,6 +325,38 @@ describe('sortShows', () => {
 
         const afterUndo = sortShows([reference, toSortableEntry(undoOutcome.show)], 'activity');
         expect(titlesOf(afterUndo)).toEqual(['Serie', 'Riferimento']);
+    });
+
+    it('dopo un reset la serie sta in cima sia con «Ultima attività» sia con «Inserite di recente» (criterio 19)', () => {
+        const reference = buildEntry('Riferimento', { lastViewedAt: '2026-02-20T00:00:00Z' });
+
+        const confirmation = advanceProgress(
+            buildShowWithEpisodes('Serie da azzerare'),
+            'e1',
+            'fabio',
+            '2026-01-15T09:00:00Z',
+            CATALOG_TODAY
+        );
+        if (confirmation.outcome !== 'applied') {
+            throw new Error('avanzamento inatteso rifiutato');
+        }
+
+        const resetOutcome = resetProgress(
+            confirmation.show,
+            { kind: 'notStarted' },
+            '2026-02-25T09:00:00Z',
+            CATALOG_TODAY
+        );
+        if (resetOutcome.outcome !== 'applied') {
+            throw new Error('reset inatteso rifiutato');
+        }
+        const resetEntry = toSortableEntry(resetOutcome.show);
+
+        const sortedByActivity = sortShows([reference, resetEntry], 'activity');
+        const sortedByAdded = sortShows([reference, resetEntry], 'added');
+
+        expect(titlesOf(sortedByActivity)).toEqual(['Serie da azzerare', 'Riferimento']);
+        expect(titlesOf(sortedByAdded)).toEqual(['Serie da azzerare', 'Riferimento']);
     });
 
     it('lancia un errore diagnostico per un criterio di ordinamento non riconosciuto', () => {

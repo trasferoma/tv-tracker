@@ -337,6 +337,37 @@ describe('firestoreTrackedShowStore', () => {
 
             expect(outcome.outcome).toBe('rejected');
         });
+
+        it('rifiuta il duplicato di una scheda nascosta con il messaggio dedicato, anche se il documento non ha il campo hidden', async () => {
+            const { runtime, documents } = createFakeFirestoreRuntime();
+            const store = createFirestoreTrackedShowStore(runtime);
+            const hidden = buildShow({ providerShowId: 'tmdb-42' });
+            await store.addShow(hidden);
+            const showPath = [...documents.keys()].find((path) => path.endsWith(hidden.id)) ?? '';
+            expect(documents.get(showPath)).not.toHaveProperty('hidden');
+            await store.changeListing(hidden.id, 'hidden', '2026-02-02T00:00:00.000Z');
+            const duplicate = buildShow({ providerShowId: 'tmdb-42' });
+
+            const outcome = await store.addShow(duplicate);
+
+            expect(outcome).toEqual({
+                outcome: 'rejected',
+                reason: 'Questa serie è già stata aggiunta ed è nascosta dall\'elenco: puoi riportarla in elenco dal suo ' +
+                    'dettaglio.'
+            });
+        });
+
+        it('rifiuta il duplicato di una scheda in elenco con il messaggio di oggi', async () => {
+            const { runtime } = createFakeFirestoreRuntime();
+            const store = createFirestoreTrackedShowStore(runtime);
+            const listed = buildShow({ providerShowId: 'tmdb-42' });
+            await store.addShow(listed);
+            const duplicate = buildShow({ providerShowId: 'tmdb-42' });
+
+            const outcome = await store.addShow(duplicate);
+
+            expect(outcome).toEqual({ outcome: 'rejected', reason: 'Questa serie è già stata aggiunta.' });
+        });
     });
 
     describe('changeVisibility', () => {
@@ -419,6 +450,119 @@ describe('firestoreTrackedShowStore', () => {
             const store = createFirestoreTrackedShowStore(runtime);
 
             const outcome = await store.changeVisibility('id-inesistente', { kind: 'shared' }, '2026-02-02T00:00:00.000Z');
+
+            expect(outcome.outcome).toBe('rejected');
+        });
+    });
+
+    describe('changeListing', () => {
+        it('nasconde la serie aggiornando updatedAt e lasciando invariati posizione, revisione, visibilità, piattaforma e stagioni', async () => {
+            const { runtime, documents } = createFakeFirestoreRuntime();
+            const store = createFirestoreTrackedShowStore(runtime);
+            const show = buildShow({ visibility: 'private', privateFor: 'fabio' });
+            await store.addShow(show);
+            await store.advanceProgress(show.id, 's1e1', 'fabio', TODAY);
+            const showPath = [...documents.keys()].find((path) => path.endsWith(show.id)) ?? '';
+            const beforeHiding = documents.get(showPath);
+
+            const outcome = await store.changeListing(show.id, 'hidden', '2026-02-02T00:00:00.000Z');
+
+            expect(outcome).toEqual({ outcome: 'changed' });
+            const reloaded = documents.get(showPath);
+            expect(reloaded?.hidden).toBe(true);
+            expect(reloaded?.updatedAt).toBe('2026-02-02T00:00:00.000Z');
+            expect(reloaded?.lastWatchedEpisodeId).toBe(beforeHiding?.lastWatchedEpisodeId);
+            expect(reloaded?.progressRevision).toBe(beforeHiding?.progressRevision);
+            expect(reloaded?.visibility).toBe(beforeHiding?.visibility);
+            expect(reloaded?.privateFor).toBe(beforeHiding?.privateFor);
+            expect(reloaded?.selectedStreamingProviderId).toBe(beforeHiding?.selectedStreamingProviderId);
+            expect(reloaded?.seasons).toEqual(beforeHiding?.seasons);
+        });
+
+        it('riportare in elenco toglie il campo dal documento invece di scrivere false', async () => {
+            const { runtime, documents } = createFakeFirestoreRuntime();
+            const store = createFirestoreTrackedShowStore(runtime);
+            const show = buildShow();
+            await store.addShow(show);
+            await store.changeListing(show.id, 'hidden', '2026-02-02T00:00:00.000Z');
+            const showPath = [...documents.keys()].find((path) => path.endsWith(show.id)) ?? '';
+
+            const outcome = await store.changeListing(show.id, 'listed', '2026-02-03T00:00:00.000Z');
+
+            expect(outcome).toEqual({ outcome: 'changed' });
+            const reloaded = documents.get(showPath);
+            expect(reloaded).not.toHaveProperty('hidden');
+            expect(reloaded?.updatedAt).toBe('2026-02-03T00:00:00.000Z');
+        });
+
+        it('nascondere una serie già nascosta è idempotente e non produce un rifiuto', async () => {
+            const { runtime, documents } = createFakeFirestoreRuntime();
+            const store = createFirestoreTrackedShowStore(runtime);
+            const show = buildShow();
+            await store.addShow(show);
+            await store.changeListing(show.id, 'hidden', '2026-02-02T00:00:00.000Z');
+            const showPath = [...documents.keys()].find((path) => path.endsWith(show.id)) ?? '';
+
+            const outcome = await store.changeListing(show.id, 'hidden', '2026-02-03T00:00:00.000Z');
+
+            expect(outcome).toEqual({ outcome: 'changed' });
+            expect(documents.get(showPath)?.hidden).toBe(true);
+        });
+
+        it('nascondere non cambia la visibilità della serie', async () => {
+            const { runtime, documents } = createFakeFirestoreRuntime();
+            const store = createFirestoreTrackedShowStore(runtime);
+            const show = buildShow({ visibility: 'private', privateFor: 'irene' });
+            await store.addShow(show);
+            const showPath = [...documents.keys()].find((path) => path.endsWith(show.id)) ?? '';
+
+            await store.changeListing(show.id, 'hidden', '2026-02-02T00:00:00.000Z');
+
+            const reloaded = documents.get(showPath);
+            expect(reloaded?.visibility).toBe('private');
+            expect(reloaded?.privateFor).toBe('irene');
+        });
+
+        it('non scrive né cancella documenti nella sottocollezione degli eventi', async () => {
+            const { runtime, documents } = createFakeFirestoreRuntime();
+            const store = createFirestoreTrackedShowStore(runtime);
+            const show = buildShow();
+            await store.addShow(show);
+            await store.advanceProgress(show.id, 's1e1', 'fabio', TODAY);
+            const eventPathsBefore = [...documents.keys()].filter((path) => path.includes('/progressEvents/'));
+
+            await store.changeListing(show.id, 'hidden', '2026-02-02T00:00:00.000Z');
+
+            const eventPathsAfter = [...documents.keys()].filter((path) => path.includes('/progressEvents/'));
+            expect(eventPathsAfter).toEqual(eventPathsBefore);
+        });
+
+        it('rilegge lo stato fresco in transazione anche se la rilettura anticipata aveva letto uno stato più vecchio', async () => {
+            const { runtime, documents } = createFakeFirestoreRuntime();
+            const store = createFirestoreTrackedShowStore(runtime);
+            const show = buildShow();
+            await store.addShow(show);
+            const showPath = [...documents.keys()].find((path) => path.endsWith(show.id)) ?? '';
+            const staleData = documents.get(showPath);
+            const staleSnapshot = { id: show.id, ref: { id: show.id, path: showPath }, exists: () => true, data: () => staleData };
+            await store.advanceProgress(show.id, 's1e1', 'fabio', TODAY);
+            vi.spyOn(runtime, 'getDoc').mockResolvedValueOnce(
+                staleSnapshot as unknown as Awaited<ReturnType<FirestoreRuntime['getDoc']>>
+            );
+
+            const outcome = await store.changeListing(show.id, 'hidden', '2026-02-02T00:00:00.000Z');
+
+            expect(outcome).toEqual({ outcome: 'changed' });
+            const reloaded = documents.get(showPath);
+            expect(reloaded?.lastWatchedEpisodeId).toBe('s1e1');
+            expect(reloaded?.hidden).toBe(true);
+        });
+
+        it('rifiuta il comando su una serie non più presente', async () => {
+            const { runtime } = createFakeFirestoreRuntime();
+            const store = createFirestoreTrackedShowStore(runtime);
+
+            const outcome = await store.changeListing('id-inesistente', 'hidden', '2026-02-02T00:00:00.000Z');
 
             expect(outcome.outcome).toBe('rejected');
         });

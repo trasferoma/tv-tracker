@@ -3,6 +3,7 @@ import { liveQuery } from 'dexie';
 import { tvTrackerDatabase } from './tvTrackerDatabase';
 import type {
     AddShowOutcome,
+    ChangeListingOutcome,
     ChangeProviderOutcome,
     ChangeVisibilityOutcome,
     RemoveShowOutcome,
@@ -16,6 +17,7 @@ import type {
 import { advanceProgress as computeAdvance } from '@/domain/progressAdvance';
 import { resetProgress as computeReset } from '@/domain/progressReset';
 import { undoLastProgress as computeUndo } from '@/domain/progressUndo';
+import { isHiddenShow, withHiddenShow, withListedShow, type ShowListing } from '@/domain/showListing';
 import { resolveShowAudience, withPrivateVisibility, withSharedVisibility, type ShowAudience } from '@/domain/showVisibility';
 import type {
     InitialPositionChoice,
@@ -28,6 +30,8 @@ import type {
 
 const SHOW_NOT_FOUND_REASON = 'La serie non esiste più: potrebbe essere stata rimossa da un altro dispositivo.';
 const DUPLICATE_SHOW_REASON = 'Questa serie è già stata aggiunta.';
+const DUPLICATE_HIDDEN_SHOW_REASON =
+    'Questa serie è già stata aggiunta ed è nascosta dall\'elenco: puoi riportarla in elenco dal suo dettaglio.';
 const VISIBILITY_COLLISION_REASONS: Record<ShowAudience['kind'], string> = {
     shared: 'Questa serie è già condivisa in una scheda a parte: rimuovine una prima di renderla condivisa.',
     private: 'Hai già una scheda solo tua di questa serie: rimuovila prima di rendere privata anche questa.'
@@ -66,7 +70,8 @@ async function addShow(show: TrackedShow): Promise<AddShowOutcome> {
     const targetAudience = resolveShowAudience(show);
     const duplicate = await findDuplicateForAudience(show.providerShowId, targetAudience);
     if (duplicate !== undefined) {
-        return { outcome: 'rejected', reason: DUPLICATE_SHOW_REASON };
+        const reason = isHiddenShow(duplicate) ? DUPLICATE_HIDDEN_SHOW_REASON : DUPLICATE_SHOW_REASON;
+        return { outcome: 'rejected', reason };
     }
     await tvTrackerDatabase.trackedShows.add(show);
     return { outcome: 'added' };
@@ -131,6 +136,21 @@ async function changeVisibility(
         return { outcome: 'rejected', reason: VISIBILITY_COLLISION_REASONS[targetAudience.kind] };
     }
     const updatedShow = applyAudience(show, targetAudience, updatedAt);
+    await tvTrackerDatabase.trackedShows.put(updatedShow);
+    return { outcome: 'changed' };
+}
+
+function applyListing(show: TrackedShow, targetListing: ShowListing, updatedAt: string): TrackedShow {
+    const showWithNewListing = targetListing === 'hidden' ? withHiddenShow(show) : withListedShow(show);
+    return { ...showWithNewListing, updatedAt };
+}
+
+async function changeListing(id: string, targetListing: ShowListing, updatedAt: string): Promise<ChangeListingOutcome> {
+    const show = await tvTrackerDatabase.trackedShows.get(id);
+    if (show === undefined) {
+        return { outcome: 'rejected', reason: SHOW_NOT_FOUND_REASON };
+    }
+    const updatedShow = applyListing(show, targetListing, updatedAt);
     await tvTrackerDatabase.trackedShows.put(updatedShow);
     return { outcome: 'changed' };
 }
@@ -257,6 +277,7 @@ export const localTrackedShowStore: TrackedShowStore = {
     updateCatalog,
     changeProvider,
     changeVisibility,
+    changeListing,
     advanceProgress,
     undoLastProgress,
     resetProgress,

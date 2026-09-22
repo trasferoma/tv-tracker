@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
-import { ref } from 'vue';
+import { defineComponent, h, ref, type PropType } from 'vue';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createRouter, createWebHistory } from 'vue-router';
 
 import { APP_VERSION } from '@/appVersion';
 import type { BackupImportSummary } from '@/backup/backupImport';
 import type { CatalogSource, LoadShowOutcome } from '@/catalog/catalogSource';
+import type { AddShowDeps } from '@/composables/useAddShow';
 import type { UseBackup } from '@/composables/useBackup';
 import type { Episode, ProgressOutcome, Season, TrackedShow } from '@/domain/trackedShow';
 import type {
@@ -64,6 +65,7 @@ function buildStubStore(initialShows: readonly TrackedShow[]): TrackedShowStore 
         updateCatalog: notImplemented,
         changeProvider: notImplemented,
         changeVisibility: notImplemented,
+        changeListing: notImplemented,
         advanceProgress: notImplemented,
         undoLastProgress: notImplemented,
         resetProgress: notImplemented,
@@ -269,7 +271,7 @@ describe('HomeView — visibilità delle serie completate', () => {
         mountedWrappers.push(wrapper);
         await flushPromises();
 
-        expect(wrapper.text()).toContain('Le tue serie sono tutte completate');
+        expect(wrapper.text()).toContain('In base ai filtri impostati la lista è vuota');
         expect(wrapper.find('.completed-toggle').text()).toBe('Mostra completate');
         expect(wrapper.findAll('.show')).toHaveLength(0);
 
@@ -315,7 +317,7 @@ describe('HomeView — visibilità delle serie completate', () => {
         mountedWrappers.push(wrapper);
         await flushPromises();
 
-        expect(wrapper.text()).toContain('Le tue serie sono tutte completate');
+        expect(wrapper.text()).toContain('In base ai filtri impostati la lista è vuota');
         expect(wrapper.find('#sortMode').exists()).toBe(true);
         expect(wrapper.find('.completed-toggle').exists()).toBe(true);
 
@@ -341,7 +343,7 @@ describe('HomeView — lente di visibilità (criteri 3, 6, 7, 21)', () => {
         vi.doUnmock('@/persistence/currentTrackedShowStore');
     });
 
-    it('mantiene il controllo della lente visibile e mostra lo stato vuoto dedicato quando la lente svuota la lista', async () => {
+    it('mantiene il controllo della lente visibile e mostra lo stato vuoto unico quando la lente svuota la lista, recuperabile tornando a «Tutto»', async () => {
         vi.resetModules();
         globalThis.localStorage.setItem('tv-tracker:show-scope', 'mine');
         vi.doMock('@/persistence/currentTrackedShowStore', () => ({
@@ -354,14 +356,19 @@ describe('HomeView — lente di visibilità (criteri 3, 6, 7, 21)', () => {
         await flushPromises();
 
         expect(wrapper.findAll('.scope-option')).toHaveLength(2);
-        expect(wrapper.text()).toContain('Nessuna serie solo tua');
+        expect(wrapper.text()).toContain('In base ai filtri impostati la lista è vuota');
         expect(wrapper.text()).not.toContain('Nessuna serie ancora');
         expect(wrapper.findAll('.show')).toHaveLength(0);
+
+        await wrapper.findAll('.scope-option')[0]?.trigger('click');
+        await flushPromises();
+
+        expect(wrapper.findAll('.show')).toHaveLength(1);
 
         vi.doUnmock('@/persistence/currentTrackedShowStore');
     });
 
-    it('non dichiara «Nessuna serie solo tua» quando una mia serie privata esiste ma è nascosta dal filtro delle completate', async () => {
+    it('mostra lo stesso stato vuoto sia quando la causa è la lente sia quando è il filtro delle completate', async () => {
         vi.resetModules();
         globalThis.localStorage.setItem('tv-tracker:show-scope', 'mine');
         const myCompletedPrivateShow = buildShow({
@@ -381,13 +388,204 @@ describe('HomeView — lente di visibilità (criteri 3, 6, 7, 21)', () => {
         mountedWrappers.push(wrapper);
         await flushPromises();
 
-        expect(wrapper.text()).not.toContain('Nessuna serie solo tua');
+        expect(wrapper.text()).toContain('In base ai filtri impostati la lista è vuota');
         expect(wrapper.find('.completed-toggle').exists()).toBe(true);
 
         await wrapper.find('.completed-toggle').trigger('click');
         await flushPromises();
 
         expect(wrapper.findAll('.show')).toHaveLength(1);
+
+        vi.doUnmock('@/persistence/currentTrackedShowStore');
+    });
+});
+
+describe('HomeView — serie nascoste (criteri 7, 8, 10, 11)', () => {
+    it('non mostra il pulsante «Mostra nascoste» quando non esiste alcuna serie nascosta', async () => {
+        vi.resetModules();
+        vi.doMock('@/persistence/currentTrackedShowStore', () => ({
+            currentTrackedShowStore: buildStubStore([buildShow()])
+        }));
+
+        const { default: HomeView } = await import('./HomeView.vue');
+        const wrapper = mount(HomeView, { global: { plugins: [testRouter] } });
+        mountedWrappers.push(wrapper);
+        await flushPromises();
+
+        expect(wrapper.find('.hidden-toggle').exists()).toBe(false);
+
+        vi.doUnmock('@/persistence/currentTrackedShowStore');
+    });
+
+    it('mostra il pulsante quando esiste una nascosta in lente, e rivela la serie marcata «Nascosta» al click', async () => {
+        vi.resetModules();
+        const hiddenShow = buildShow({
+            id: 'nascosta',
+            providerShowId: 'p-nascosta',
+            title: 'Serie nascosta',
+            hidden: true
+        });
+        vi.doMock('@/persistence/currentTrackedShowStore', () => ({
+            currentTrackedShowStore: buildStubStore([hiddenShow])
+        }));
+
+        const { default: HomeView } = await import('./HomeView.vue');
+        const wrapper = mount(HomeView, { global: { plugins: [testRouter] } });
+        mountedWrappers.push(wrapper);
+        await flushPromises();
+
+        expect(wrapper.find('.hidden-toggle').text()).toBe('Mostra nascoste');
+        expect(wrapper.findAll('.show')).toHaveLength(0);
+
+        await wrapper.find('.hidden-toggle').trigger('click');
+        await flushPromises();
+
+        expect(wrapper.find('.hidden-toggle').text()).toBe('Nascondi di nuovo');
+        expect(wrapper.findAll('.show')).toHaveLength(1);
+        expect(wrapper.find('.hidden-marker').text()).toBe('Nascosta');
+
+        vi.doUnmock('@/persistence/currentTrackedShowStore');
+    });
+
+    it('mostra lo stato vuoto unico quando è tutto nascosto, con i controlli premibili', async () => {
+        vi.resetModules();
+        const hiddenShow = buildShow({
+            id: 'nascosta',
+            providerShowId: 'p-nascosta',
+            title: 'Serie nascosta',
+            hidden: true
+        });
+        vi.doMock('@/persistence/currentTrackedShowStore', () => ({
+            currentTrackedShowStore: buildStubStore([hiddenShow])
+        }));
+
+        const { default: HomeView } = await import('./HomeView.vue');
+        const wrapper = mount(HomeView, { global: { plugins: [testRouter] } });
+        mountedWrappers.push(wrapper);
+        await flushPromises();
+
+        expect(wrapper.text()).toContain('In base ai filtri impostati la lista è vuota');
+        expect(wrapper.text()).toContain('Mostra nascoste');
+        expect(wrapper.find('#sortMode').exists()).toBe(true);
+        expect(wrapper.find('.hidden-toggle').exists()).toBe(true);
+
+        await wrapper.find('.hidden-toggle').trigger('click');
+        await flushPromises();
+
+        expect(wrapper.findAll('.show')).toHaveLength(1);
+
+        vi.doUnmock('@/persistence/currentTrackedShowStore');
+    });
+
+    it('una serie nascosta e completata compare solo con entrambi i filtri accesi (§5)', async () => {
+        vi.resetModules();
+        const hiddenCompletedShow = buildShow({
+            id: 'nascosta-completata',
+            providerShowId: 'p-nascosta-completata',
+            title: 'Serie nascosta e completata',
+            hidden: true,
+            lastWatchedEpisodeId: 's1e1'
+        });
+        vi.doMock('@/persistence/currentTrackedShowStore', () => ({
+            currentTrackedShowStore: buildStubStore([hiddenCompletedShow])
+        }));
+
+        const { default: HomeView } = await import('./HomeView.vue');
+        const wrapper = mount(HomeView, { global: { plugins: [testRouter] } });
+        mountedWrappers.push(wrapper);
+        await flushPromises();
+
+        expect(wrapper.find('.completed-toggle').exists()).toBe(false);
+        expect(wrapper.find('.hidden-toggle').exists()).toBe(true);
+        expect(wrapper.findAll('.show')).toHaveLength(0);
+
+        await wrapper.find('.hidden-toggle').trigger('click');
+        await flushPromises();
+
+        expect(wrapper.find('.completed-toggle').exists()).toBe(true);
+        expect(wrapper.findAll('.show')).toHaveLength(0);
+
+        await wrapper.find('.completed-toggle').trigger('click');
+        await flushPromises();
+
+        expect(wrapper.findAll('.show')).toHaveLength(1);
+
+        vi.doUnmock('@/persistence/currentTrackedShowStore');
+    });
+
+    it('mostra uno stato vuoto generico quando una nascosta e una completata diverse svuotano la lista insieme', async () => {
+        vi.resetModules();
+        const hiddenShow = buildShow({
+            id: 'nascosta',
+            providerShowId: 'p-nascosta',
+            title: 'Serie nascosta',
+            hidden: true
+        });
+        const completedShow = buildShow({
+            id: 'completata',
+            providerShowId: 'p-completata',
+            title: 'Serie completata',
+            lastWatchedEpisodeId: 's1e1'
+        });
+        vi.doMock('@/persistence/currentTrackedShowStore', () => ({
+            currentTrackedShowStore: buildStubStore([hiddenShow, completedShow])
+        }));
+
+        const { default: HomeView } = await import('./HomeView.vue');
+        const wrapper = mount(HomeView, { global: { plugins: [testRouter] } });
+        mountedWrappers.push(wrapper);
+        await flushPromises();
+
+        expect(wrapper.text()).toContain('In base ai filtri impostati la lista è vuota');
+        expect(wrapper.find('.hidden-toggle').exists()).toBe(true);
+        expect(wrapper.find('.completed-toggle').exists()).toBe(true);
+        expect(wrapper.findAll('.show')).toHaveLength(0);
+
+        await wrapper.find('.hidden-toggle').trigger('click');
+        await flushPromises();
+
+        expect(wrapper.findAll('.show')).toHaveLength(1);
+        expect(wrapper.text()).toContain('Serie nascosta');
+
+        await wrapper.find('.completed-toggle').trigger('click');
+        await flushPromises();
+
+        expect(wrapper.findAll('.show')).toHaveLength(2);
+
+        vi.doUnmock('@/persistence/currentTrackedShowStore');
+    });
+});
+
+describe('HomeView — cablaggio del duplicato nascosto nel dialogo di aggiunta (criterio 12)', () => {
+    it('passa a AddShowDialog l\'insieme, calcolato da useTrackedShows, delle serie con tutte le schede nascoste', async () => {
+        vi.resetModules();
+        const hiddenShow = buildShow({
+            id: 'nascosta',
+            providerShowId: 'p-nascosta',
+            title: 'Serie nascosta',
+            hidden: true
+        });
+        vi.doMock('@/persistence/currentTrackedShowStore', () => ({
+            currentTrackedShowStore: buildStubStore([hiddenShow])
+        }));
+
+        const { default: HomeView } = await import('./HomeView.vue');
+        const AddShowDialogStub = defineComponent({
+            props: { open: Boolean, deps: { type: Object as PropType<AddShowDeps | undefined>, default: undefined } },
+            setup(props) {
+                return () => {
+                    const isFullyHiddenDuplicate = props.deps?.fullyHiddenProviderShowIds?.value.has('p-nascosta') ?? false;
+                    return h('div', { class: 'add-dialog-stub' }, String(isFullyHiddenDuplicate));
+                };
+            }
+        });
+        const wrapper = mount(HomeView, {
+            global: { plugins: [testRouter], stubs: { AddShowDialog: AddShowDialogStub } }
+        });
+        mountedWrappers.push(wrapper);
+        await flushPromises();
+
+        expect(wrapper.find('.add-dialog-stub').text()).toBe('true');
 
         vi.doUnmock('@/persistence/currentTrackedShowStore');
     });

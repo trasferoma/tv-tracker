@@ -190,6 +190,48 @@ describe('validateBackupFile', () => {
         expect(outcome.valid).toBe(false);
     });
 
+    it('accetta una serie priva del campo hidden e la rilegge come in elenco', () => {
+        const rawShow: Record<string, unknown> = { ...buildShow() };
+        delete rawShow.hidden;
+
+        const outcome = validateBackupFile(buildBackupFilePayload({ shows: [rawShow] }));
+
+        expect(outcome.valid).toBe(true);
+        if (outcome.valid) {
+            expect(outcome.backup.shows[0]?.hidden).toBeUndefined();
+        }
+    });
+
+    it('accetta una serie con hidden true e la rilegge nascosta', () => {
+        const hiddenShow = buildShow({ hidden: true });
+
+        const outcome = validateBackupFile(buildBackupFilePayload({ shows: [hiddenShow] }));
+
+        expect(outcome.valid).toBe(true);
+        if (outcome.valid) {
+            expect(outcome.backup.shows[0]?.hidden).toBe(true);
+        }
+    });
+
+    it('accetta una serie con hidden false', () => {
+        const listedShow = buildShow({ hidden: false });
+
+        const outcome = validateBackupFile(buildBackupFilePayload({ shows: [listedShow] }));
+
+        expect(outcome.valid).toBe(true);
+    });
+
+    it('rifiuta un hidden che non è un valore booleano', () => {
+        const invalidShow = { ...buildShow(), hidden: 'sì' };
+
+        const outcome = validateBackupFile(buildBackupFilePayload({ shows: [invalidShow] }));
+
+        expect(outcome.valid).toBe(false);
+        if (!outcome.valid) {
+            expect(outcome.reason).toContain('hidden');
+        }
+    });
+
     it('rifiuta un evento senza confirmedEpisodeId', () => {
         const rawEvent: Record<string, unknown> = { ...buildEvent() };
         delete rawEvent.confirmedEpisodeId;

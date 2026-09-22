@@ -78,6 +78,7 @@ function buildStore(overrides: Partial<TrackedShowStore> = {}): TrackedShowStore
         updateCatalog: notImplemented,
         changeProvider: notImplemented,
         changeVisibility: notImplemented,
+        changeListing: notImplemented,
         advanceProgress: notImplemented,
         undoLastProgress: notImplemented,
         resetProgress: notImplemented,
@@ -333,6 +334,41 @@ describe('useAddShow — criterio 8, il blocco dei duplicati usa l\'insieme del 
 
         expect(controller.step.value).toBe('search');
         expect(controller.searchStatus.value).toEqual({ kind: 'unavailable', reason: 'Questa serie è già stata aggiunta.' });
+    });
+});
+
+describe('useAddShow — criterio 12, messaggio dedicato del duplicato nascosto', () => {
+    it('mostra il messaggio dedicato quando tutte le schede visibili della serie sono nascoste', async () => {
+        const trackedProviderShowIds = { value: new Set(['provider-1']) };
+        const fullyHiddenProviderShowIds = { value: new Set(['provider-1']) };
+        const { controller } = mountAddShow(buildDeps({ trackedProviderShowIds, fullyHiddenProviderShowIds }));
+
+        await controller.chooseResult(buildSearchResultItem({ providerShowId: 'provider-1' }));
+
+        expect(controller.searchStatus.value).toEqual({
+            kind: 'unavailable',
+            reason: 'Questa serie è già stata aggiunta ed è nascosta dall\'elenco: puoi riportarla in elenco dal suo dettaglio.'
+        });
+    });
+
+    it('mostra il messaggio di oggi quando esiste anche una sola scheda in elenco', async () => {
+        const trackedProviderShowIds = { value: new Set(['provider-1']) };
+        const fullyHiddenProviderShowIds = { value: new Set<string>() };
+        const { controller } = mountAddShow(buildDeps({ trackedProviderShowIds, fullyHiddenProviderShowIds }));
+
+        await controller.chooseResult(buildSearchResultItem({ providerShowId: 'provider-1' }));
+
+        expect(controller.searchStatus.value).toEqual({ kind: 'unavailable', reason: 'Questa serie è già stata aggiunta.' });
+    });
+
+    it('senza duplicato il messaggio dedicato non compare, anche se la serie fosse nell\'insieme delle nascoste', async () => {
+        const trackedProviderShowIds = { value: new Set<string>() };
+        const fullyHiddenProviderShowIds = { value: new Set(['provider-1']) };
+        const { controller } = mountAddShow(buildDeps({ trackedProviderShowIds, fullyHiddenProviderShowIds }));
+
+        await controller.chooseResult(buildSearchResultItem({ providerShowId: 'provider-1' }));
+
+        expect(controller.step.value).toBe('provider');
     });
 });
 

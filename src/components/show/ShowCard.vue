@@ -34,10 +34,19 @@ function requestWatch(): void {
           <div class="title">
             {{ item.title }}
           </div>
-          <PrivateShowDot
-            v-if="item.privateProfileId !== undefined"
-            :profile-id="item.privateProfileId"
-          />
+          <div
+            v-if="item.isHidden || item.privateProfileId !== undefined"
+            class="title-badges"
+          >
+            <span
+              v-if="item.isHidden"
+              class="hidden-marker"
+            >Nascosta</span>
+            <PrivateShowDot
+              v-if="item.privateProfileId !== undefined"
+              :profile-id="item.privateProfileId"
+            />
+          </div>
         </div>
         <ShowBadge
           :label="item.badgeLabel"
@@ -144,6 +153,24 @@ function requestWatch(): void {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.title-badges {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.title-badges :deep(.private-dot) {
+    margin-left: 0;
+}
+
+.hidden-marker {
+    color: var(--text-dim);
+    font-size: 11px;
+    font-weight: 750;
+    white-space: nowrap;
 }
 
 .provider {

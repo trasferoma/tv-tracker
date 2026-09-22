@@ -59,6 +59,7 @@ function buildStore(overrides: Partial<TrackedShowStore> = {}): TrackedShowStore
         updateCatalog: notImplemented,
         changeProvider: notImplemented,
         changeVisibility: notImplemented,
+        changeListing: notImplemented,
         advanceProgress: notImplemented,
         undoLastProgress: notImplemented,
         resetProgress: notImplemented,

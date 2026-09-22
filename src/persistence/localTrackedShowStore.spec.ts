@@ -160,6 +160,31 @@ describe('addShow', () => {
         expect(outcome.outcome).toBe('rejected');
         expect(await tvTrackerDatabase.trackedShows.count()).toBe(1);
     });
+
+    it('rifiuta il duplicato di una scheda nascosta con il messaggio dedicato', async () => {
+        const hidden = buildShow({ providerShowId: 'tmdb-42' });
+        await localTrackedShowStore.addShow(hidden);
+        await localTrackedShowStore.changeListing(hidden.id, 'hidden', '2026-02-02T00:00:00.000Z');
+        const duplicate = buildShow({ providerShowId: 'tmdb-42' });
+
+        const outcome = await localTrackedShowStore.addShow(duplicate);
+
+        expect(outcome).toEqual({
+            outcome: 'rejected',
+            reason: 'Questa serie è già stata aggiunta ed è nascosta dall\'elenco: puoi riportarla in elenco dal suo ' +
+                'dettaglio.'
+        });
+    });
+
+    it('rifiuta il duplicato di una scheda in elenco con il messaggio di oggi', async () => {
+        const listed = buildShow({ providerShowId: 'tmdb-42' });
+        await localTrackedShowStore.addShow(listed);
+        const duplicate = buildShow({ providerShowId: 'tmdb-42' });
+
+        const outcome = await localTrackedShowStore.addShow(duplicate);
+
+        expect(outcome).toEqual({ outcome: 'rejected', reason: 'Questa serie è già stata aggiunta.' });
+    });
 });
 
 describe('changeVisibility', () => {
@@ -261,6 +286,84 @@ describe('changeVisibility', () => {
             { kind: 'shared' },
             '2026-02-02T00:00:00.000Z'
         );
+
+        expect(outcome.outcome).toBe('rejected');
+    });
+});
+
+describe('changeListing', () => {
+    it('nasconde la serie aggiornando updatedAt e lasciando invariati posizione, revisione, visibilita, piattaforma e stagioni', async () => {
+        const show = buildShow({ visibility: 'private', privateFor: 'fabio' });
+        await localTrackedShowStore.addShow(show);
+        await localTrackedShowStore.advanceProgress(show.id, 's1e1', 'fabio', TODAY);
+        const beforeHiding = await tvTrackerDatabase.trackedShows.get(show.id);
+
+        const outcome = await localTrackedShowStore.changeListing(show.id, 'hidden', '2026-02-02T00:00:00.000Z');
+
+        expect(outcome).toEqual({ outcome: 'changed' });
+        const reloaded = await tvTrackerDatabase.trackedShows.get(show.id);
+        expect(reloaded?.hidden).toBe(true);
+        expect(reloaded?.updatedAt).toBe('2026-02-02T00:00:00.000Z');
+        expect(reloaded?.lastWatchedEpisodeId).toBe(beforeHiding?.lastWatchedEpisodeId);
+        expect(reloaded?.progressRevision).toBe(beforeHiding?.progressRevision);
+        expect(reloaded?.lastViewedAt).toBe(beforeHiding?.lastViewedAt);
+        expect(reloaded?.visibility).toBe(beforeHiding?.visibility);
+        expect(reloaded?.privateFor).toBe(beforeHiding?.privateFor);
+        expect(reloaded?.selectedStreamingProviderId).toBe(beforeHiding?.selectedStreamingProviderId);
+        expect(reloaded?.seasons).toEqual(beforeHiding?.seasons);
+        expect(await tvTrackerDatabase.progressEvents.where('trackedShowId').equals(show.id).count()).toBe(1);
+    });
+
+    it('riportare in elenco non conserva il campo sul record', async () => {
+        const show = buildShow();
+        await localTrackedShowStore.addShow(show);
+        await localTrackedShowStore.changeListing(show.id, 'hidden', '2026-02-02T00:00:00.000Z');
+
+        const outcome = await localTrackedShowStore.changeListing(show.id, 'listed', '2026-02-03T00:00:00.000Z');
+
+        expect(outcome).toEqual({ outcome: 'changed' });
+        const reloaded = await tvTrackerDatabase.trackedShows.get(show.id);
+        expect(reloaded?.hidden).toBeUndefined();
+        expect(reloaded?.updatedAt).toBe('2026-02-03T00:00:00.000Z');
+    });
+
+    it('nascondere una serie gia nascosta e idempotente e non produce un rifiuto', async () => {
+        const show = buildShow();
+        await localTrackedShowStore.addShow(show);
+        await localTrackedShowStore.changeListing(show.id, 'hidden', '2026-02-02T00:00:00.000Z');
+
+        const outcome = await localTrackedShowStore.changeListing(show.id, 'hidden', '2026-02-03T00:00:00.000Z');
+
+        expect(outcome).toEqual({ outcome: 'changed' });
+        const reloaded = await tvTrackerDatabase.trackedShows.get(show.id);
+        expect(reloaded?.hidden).toBe(true);
+    });
+
+    it('nascondere non cambia la visibilita della serie', async () => {
+        const show = buildShow({ visibility: 'private', privateFor: 'irene' });
+        await localTrackedShowStore.addShow(show);
+
+        await localTrackedShowStore.changeListing(show.id, 'hidden', '2026-02-02T00:00:00.000Z');
+
+        const reloaded = await tvTrackerDatabase.trackedShows.get(show.id);
+        expect(reloaded?.visibility).toBe('private');
+        expect(reloaded?.privateFor).toBe('irene');
+    });
+
+    it('non tocca gli eventi delle altre serie', async () => {
+        const hiddenShow = buildShow({ providerShowId: 'tmdb-hide' });
+        const otherShow = buildShow({ providerShowId: 'tmdb-other' });
+        await localTrackedShowStore.addShow(hiddenShow);
+        await localTrackedShowStore.addShow(otherShow);
+        await localTrackedShowStore.advanceProgress(otherShow.id, 's1e1', 'irene', TODAY);
+
+        await localTrackedShowStore.changeListing(hiddenShow.id, 'hidden', '2026-02-02T00:00:00.000Z');
+
+        expect(await tvTrackerDatabase.progressEvents.where('trackedShowId').equals(otherShow.id).count()).toBe(1);
+    });
+
+    it('rifiuta il comando su una serie non piu presente', async () => {
+        const outcome = await localTrackedShowStore.changeListing('id-inesistente', 'hidden', '2026-02-02T00:00:00.000Z');
 
         expect(outcome.outcome).toBe('rejected');
     });

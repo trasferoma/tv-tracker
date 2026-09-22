@@ -68,6 +68,7 @@ function buildStore(initialShows: readonly TrackedShow[]): { store: TrackedShowS
         },
         changeProvider: notImplemented,
         changeVisibility: notImplemented,
+        changeListing: notImplemented,
         advanceProgress: notImplemented,
         undoLastProgress: notImplemented,
         resetProgress: notImplemented,
@@ -190,6 +191,19 @@ describe('refreshManually', () => {
         const outcome = await catalogRefresh.refreshManually();
 
         expect(outcome).toEqual({ outcome: 'unavailable', reason: 'La serie non esiste più.' });
+    });
+
+    it('aggiorna anche le serie nascoste dall\'elenco (criterio 14, SPEC §8)', async () => {
+        const hiddenShow = buildShow({ providerShowId: 'p1', hidden: true });
+        const { store, updateCatalogCalls } = buildStore([hiddenShow]);
+        const { catalogSource } = buildCatalogSource({ p1: { outcome: 'found', show: buildCatalogShow('p1') } });
+        const catalogRefresh = createCatalogRefresh(buildDeps({ store, catalogSource }));
+
+        const outcome = await catalogRefresh.refreshManually();
+
+        expect(outcome).toEqual({ outcome: 'updated' });
+        expect(updateCatalogCalls).toHaveLength(1);
+        expect(updateCatalogCalls[0]?.providerShowId).toBe('p1');
     });
 
     it('non persiste mai una posizione orfana: la serie il cui episodio visto sparisce del tutto non viene aggiornata', async () => {

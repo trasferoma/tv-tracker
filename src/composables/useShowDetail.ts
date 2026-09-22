@@ -4,6 +4,7 @@ import { matchSessionState, session } from '@/auth/session';
 import { isAlreadyPublished, toCatalogDate } from '@/domain/catalogDate';
 import { buildEpisodeSequence, positionOfEpisode } from '@/domain/episodeOrder';
 import { selectPosterUrl } from '@/domain/seasonPoster';
+import { resolveShowListing, type ShowListing } from '@/domain/showListing';
 import { resolveShowAudience, type ShowAudience } from '@/domain/showVisibility';
 import {
     SPECIAL_SEASON_NUMBER,
@@ -17,6 +18,7 @@ import {
 import { calculateWatchPosition, type WatchPosition } from '@/domain/watchPosition';
 import { currentTrackedShowStore } from '@/persistence/currentTrackedShowStore';
 import type {
+    ChangeListingOutcome,
     ChangeProviderOutcome,
     ChangeVisibilityOutcome,
     RemoveShowOutcome,
@@ -62,6 +64,7 @@ export interface ShowDetailContent {
     readonly selectedProviderId: string | undefined;
     readonly canUndo: boolean;
     readonly audience: ShowAudience;
+    readonly listing: ShowListing;
     readonly resettableEpisodes: readonly Episode[];
 }
 
@@ -104,6 +107,7 @@ export interface UseShowDetail {
     confirmPendingRemove(): Promise<RemoveShowOutcome | undefined>;
     changeProvider(providerId: string | undefined): Promise<ChangeProviderOutcome | undefined>;
     changeVisibility(targetKind: ShowAudience['kind']): Promise<ChangeVisibilityOutcome | undefined>;
+    changeListing(targetListing: ShowListing): Promise<ChangeListingOutcome | undefined>;
     dismissResetSuggestion(): void;
     setResetTargetPosition(position: InitialPositionChoice): void;
     requestReset(): void;
@@ -237,6 +241,15 @@ export function useShowDetail(id: Ref<string>, deps: ShowDetailDeps = {}): UseSh
         return outcome;
     }
 
+    async function changeListing(targetListing: ShowListing): Promise<ChangeListingOutcome | undefined> {
+        const currentShow = show.value;
+        if (currentShow === undefined) {
+            return undefined;
+        }
+        const updatedAt = resolveNow();
+        return store.changeListing(currentShow.id, targetListing, updatedAt);
+    }
+
     function dismissResetSuggestion(): void {
         resetSuggestionVisible.value = false;
     }
@@ -292,6 +305,7 @@ export function useShowDetail(id: Ref<string>, deps: ShowDetailDeps = {}): UseSh
         confirmPendingRemove,
         changeProvider,
         changeVisibility,
+        changeListing,
         dismissResetSuggestion,
         setResetTargetPosition,
         requestReset,
@@ -337,6 +351,7 @@ function buildContent(show: TrackedShow, watchPosition: WatchPosition, today: st
     const upcomingHeadline = buildUpcomingHeadline(watchPosition.nextUpcomingEpisode);
     const specials = buildSpecials(show);
     const audience = resolveShowAudience(show);
+    const listing = resolveShowListing(show);
     const resettableEpisodes = resettableEpisodesFor(show, today);
     return {
         id: show.id,
@@ -350,6 +365,7 @@ function buildContent(show: TrackedShow, watchPosition: WatchPosition, today: st
         selectedProviderId: show.selectedStreamingProviderId,
         canUndo: show.lastViewedAt !== undefined,
         audience,
+        listing,
         resettableEpisodes
     };
 }

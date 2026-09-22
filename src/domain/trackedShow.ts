@@ -36,6 +36,7 @@ export interface TrackedShow {
     readonly selectedStreamingProviderName?: string | undefined;
     readonly visibility?: 'shared' | 'private' | undefined;
     readonly privateFor?: string | undefined;
+    readonly hidden?: boolean | undefined;
     readonly lastWatchedEpisodeId?: string | undefined;
     readonly progressRevision: number;
     readonly addedAt: string;

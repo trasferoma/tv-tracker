@@ -1,3 +1,4 @@
+import type { ShowListing } from '@/domain/showListing';
 import type { ShowAudience } from '@/domain/showVisibility';
 import type {
     InitialPositionChoice,
@@ -29,6 +30,10 @@ export type ChangeVisibilityOutcome =
     | { readonly outcome: 'changed' }
     | { readonly outcome: 'rejected'; readonly reason: string };
 
+export type ChangeListingOutcome =
+    | { readonly outcome: 'changed' }
+    | { readonly outcome: 'rejected'; readonly reason: string };
+
 export type RemoveShowOutcome =
     | { readonly outcome: 'removed' }
     | { readonly outcome: 'rejected'; readonly reason: string };
@@ -48,6 +53,7 @@ export interface TrackedShowStore {
         updatedAt: string
     ): Promise<ChangeProviderOutcome>;
     changeVisibility(id: string, targetAudience: ShowAudience, updatedAt: string): Promise<ChangeVisibilityOutcome>;
+    changeListing(id: string, targetListing: ShowListing, updatedAt: string): Promise<ChangeListingOutcome>;
     advanceProgress(id: string, targetEpisodeId: string, confirmedBy: string, today: string): Promise<ProgressOutcome>;
     undoLastProgress(id: string, expectedRevision: number, undoneBy: string): Promise<ProgressOutcome>;
     resetProgress(

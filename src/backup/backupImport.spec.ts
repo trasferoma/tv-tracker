@@ -92,6 +92,16 @@ describe('planImport', () => {
         expect(plan.mergedShows).toEqual([newerLocal]);
     });
 
+    it('conserva lo stato nascosta della copia vincente', () => {
+        const hiddenInFile = buildShow({ id: 'show-1', hidden: true });
+        const listedLocal = buildShow({ id: 'show-2' });
+        const backup = buildBackup([hiddenInFile]);
+
+        const plan = planImport(backup, [listedLocal], []);
+
+        expect(plan.mergedShows).toEqual([listedLocal, hiddenInFile]);
+    });
+
     it('porta con sé gli eventi della copia vincente, non li mescola con quelli della copia perdente', () => {
         const olderLocal = buildShow({ id: 'show-1', updatedAt: '2026-01-01T00:00:00.000Z' });
         const newerInFile = { ...olderLocal, updatedAt: '2026-03-01T00:00:00.000Z' };
@@ -126,6 +136,16 @@ describe('applyReplaceImport', () => {
         expect(outcome).toEqual({ outcome: 'replaced' });
         const allShows = await tvTrackerDatabase.trackedShows.toArray();
         expect(allShows).toEqual([replacement]);
+    });
+
+    it('conserva lo stato nascosta di una serie sostituita', async () => {
+        const hiddenReplacement = buildShow({ providerShowId: 'hidden-replacement', hidden: true });
+        const backup = buildBackup([hiddenReplacement]);
+
+        await applyReplaceImport(localTrackedShowStore, backup);
+
+        const allShows = await tvTrackerDatabase.trackedShows.toArray();
+        expect(allShows[0]?.hidden).toBe(true);
     });
 });
 

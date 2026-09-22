@@ -34,6 +34,7 @@ import {
 
 import type {
     AddShowOutcome,
+    ChangeListingOutcome,
     ChangeProviderOutcome,
     ChangeVisibilityOutcome,
     RemoveShowOutcome,
@@ -48,6 +49,7 @@ import { getFirebaseAuth } from '@/auth/firebaseApp';
 import { advanceProgress as computeAdvance } from '@/domain/progressAdvance';
 import { resetProgress as computeReset } from '@/domain/progressReset';
 import { undoLastProgress as computeUndo } from '@/domain/progressUndo';
+import { isHiddenShow, withHiddenShow, withListedShow, type ShowListing } from '@/domain/showListing';
 import { resolveShowAudience, withPrivateVisibility, withSharedVisibility, type ShowAudience } from '@/domain/showVisibility';
 import type {
     InitialPositionChoice,
@@ -65,6 +67,8 @@ const MAX_BATCH_WRITE_OPERATIONS = 400;
 
 const SHOW_NOT_FOUND_REASON = 'La serie non esiste più: potrebbe essere stata rimossa da un altro dispositivo.';
 const DUPLICATE_SHOW_REASON = 'Questa serie è già stata aggiunta.';
+const DUPLICATE_HIDDEN_SHOW_REASON =
+    'Questa serie è già stata aggiunta ed è nascosta dall\'elenco: puoi riportarla in elenco dal suo dettaglio.';
 const VISIBILITY_COLLISION_REASONS: Record<ShowAudience['kind'], string> = {
     shared: 'Questa serie è già condivisa in una scheda a parte: rimuovine una prima di renderla condivisa.',
     private: 'Hai già una scheda solo tua di questa serie: rimuovila prima di rendere privata anche questa.'
@@ -301,7 +305,8 @@ async function addShow(runtime: FirestoreRuntime, show: TrackedShow): Promise<Ad
     const targetAudience = resolveShowAudience(show);
     const duplicate = await findDuplicateForAudience(runtime, firestore, show.providerShowId, targetAudience);
     if (duplicate !== undefined) {
-        return { outcome: 'rejected', reason: DUPLICATE_SHOW_REASON };
+        const reason = isHiddenShow(duplicate) ? DUPLICATE_HIDDEN_SHOW_REASON : DUPLICATE_SHOW_REASON;
+        return { outcome: 'rejected', reason };
     }
     await runtime.setDoc(trackedShowDocRef(runtime, firestore, show.id), show);
     return { outcome: 'added' };
@@ -383,6 +388,35 @@ async function changeVisibility(
         }
         const freshShow = readTrackedShowSnapshot(showSnapshot);
         const updatedShow = applyAudience(freshShow, targetAudience, updatedAt);
+        transaction.set(showRef, updatedShow);
+        return { outcome: 'changed' };
+    });
+}
+
+function applyListing(show: TrackedShow, targetListing: ShowListing, updatedAt: string): TrackedShow {
+    const showWithNewListing = targetListing === 'hidden' ? withHiddenShow(show) : withListedShow(show);
+    return { ...showWithNewListing, updatedAt };
+}
+
+async function changeListing(
+    runtime: FirestoreRuntime,
+    id: string,
+    targetListing: ShowListing,
+    updatedAt: string
+): Promise<ChangeListingOutcome> {
+    const firestore = runtime.getFirestore();
+    const showRef = trackedShowDocRef(runtime, firestore, id);
+    const existing = await runtime.getDoc(showRef);
+    if (!existing.exists()) {
+        return { outcome: 'rejected', reason: SHOW_NOT_FOUND_REASON };
+    }
+    return runtime.runTransaction(firestore, async (transaction) => {
+        const showSnapshot = await transaction.get(showRef);
+        if (!showSnapshot.exists()) {
+            return { outcome: 'rejected', reason: SHOW_NOT_FOUND_REASON };
+        }
+        const freshShow = readTrackedShowSnapshot(showSnapshot);
+        const updatedShow = applyListing(freshShow, targetListing, updatedAt);
         transaction.set(showRef, updatedShow);
         return { outcome: 'changed' };
     });
@@ -588,6 +622,7 @@ export function createFirestoreTrackedShowStore(runtime: FirestoreRuntime = defa
         updateCatalog: (show) => updateCatalog(runtime, show),
         changeProvider: (id, selectedProvider, updatedAt) => changeProvider(runtime, id, selectedProvider, updatedAt),
         changeVisibility: (id, targetAudience, updatedAt) => changeVisibility(runtime, id, targetAudience, updatedAt),
+        changeListing: (id, targetListing, updatedAt) => changeListing(runtime, id, targetListing, updatedAt),
         advanceProgress: (id, targetEpisodeId, confirmedBy, today) =>
             advanceProgress(runtime, id, targetEpisodeId, confirmedBy, today),
         undoLastProgress: (id, expectedRevision, undoneBy) => undoLastProgress(runtime, id, expectedRevision, undoneBy),

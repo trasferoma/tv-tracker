@@ -29,6 +29,7 @@ function buildItem(overrides: Partial<ShowListItem> = {}): ShowListItem {
         firstUnwatchedEpisodeId: 'episode-s02e07',
         errorMessage: undefined,
         privateProfileId: undefined,
+        isHidden: false,
         ...overrides
     };
 }
@@ -124,5 +125,31 @@ describe('ShowCard', () => {
         const wrapper = mountShowCard(buildItem({ privateProfileId: undefined }));
 
         expect(wrapper.find('.private-dot').exists()).toBe(false);
+    });
+
+    it('mostra il marcatore «Nascosta» sulle serie nascoste', () => {
+        const wrapper = mountShowCard(buildItem({ isHidden: true }));
+
+        expect(wrapper.find('.hidden-marker').text()).toBe('Nascosta');
+    });
+
+    it('non mostra alcun marcatore sulle serie in elenco', () => {
+        const wrapper = mountShowCard(buildItem({ isHidden: false }));
+
+        expect(wrapper.find('.hidden-marker').exists()).toBe(false);
+    });
+
+    it('non mostra il marcatore «Nascosta» su una serie privata ma non nascosta', () => {
+        const wrapper = mountShowCard(buildItem({ isHidden: false, privateProfileId: 'irene' }));
+
+        expect(wrapper.find('.hidden-marker').exists()).toBe(false);
+        expect(wrapper.find('.private-dot').exists()).toBe(true);
+    });
+
+    it('mostra sia il marcatore «Nascosta» sia il puntino privato quando la serie è nascosta e privata', () => {
+        const wrapper = mountShowCard(buildItem({ isHidden: true, privateProfileId: 'irene' }));
+
+        expect(wrapper.find('.hidden-marker').text()).toBe('Nascosta');
+        expect(wrapper.find('.private-dot').exists()).toBe(true);
     });
 });

@@ -7,6 +7,7 @@ import { mergeAnnouncedEpisode } from '@/domain/catalogMerge';
 import { toCatalogDate } from '@/domain/catalogDate';
 import { generateId } from '@/domain/identity';
 import { selectPosterUrl } from '@/domain/seasonPoster';
+import { isHiddenShow } from '@/domain/showListing';
 import { sortShows, type ShowSortMode } from '@/domain/showSorting';
 import { isVisibleToProfile, matchesScope, resolveShowAudience, type ShowScope } from '@/domain/showVisibility';
 import type { ItalianProvider, ProgressOutcome, TrackedShow } from '@/domain/trackedShow';
@@ -43,6 +44,7 @@ export interface ShowListItem {
     readonly firstUnwatchedEpisodeId: string | undefined;
     readonly errorMessage: string | undefined;
     readonly privateProfileId: string | undefined;
+    readonly isHidden: boolean;
 }
 
 export interface PendingWatchConfirmation {
@@ -63,9 +65,10 @@ export interface UseTrackedShows {
     readonly listItems: ComputedRef<readonly ShowListItem[]>;
     readonly summaryText: ComputedRef<string>;
     readonly trackedProviderShowIds: ComputedRef<ReadonlySet<string>>;
+    readonly fullyHiddenProviderShowIds: ComputedRef<ReadonlySet<string>>;
+    readonly hiddenCount: ComputedRef<number>;
     readonly completedCount: ComputedRef<number>;
     readonly hasTrackedShows: ComputedRef<boolean>;
-    readonly hasScopedShows: ComputedRef<boolean>;
     readonly pendingWatch: Ref<PendingWatchConfirmation | undefined>;
     requestWatch(showId: string): void;
     cancelPendingWatch(): void;
@@ -91,6 +94,7 @@ export function useTrackedShows(
     sortMode: Ref<ShowSortMode>,
     showCompleted: Ref<boolean>,
     scope: Ref<ShowScope>,
+    showHidden: Ref<boolean>,
     deps: TrackedShowsDeps = {}
 ): UseTrackedShows {
     const store = deps.store ?? currentTrackedShowStore;
@@ -124,23 +128,32 @@ export function useTrackedShows(
 
     const visibleShows = computed<readonly TrackedShow[]>(() => visibleEntries.value.map((entry) => entry.show));
 
+    const activeEntries = computed<readonly ShowComputation[]>(() =>
+        visibleEntries.value.filter((entry) => !isHiddenShow(entry.show)));
+
     const scopedEntries = computed<readonly ShowComputation[]>(() =>
         visibleEntries.value.filter((entry) => matchesScope(entry.show, activeProfileId.value, scope.value)));
 
+    const listedEntries = computed<readonly ShowComputation[]>(() =>
+        scopedEntries.value.filter((entry) => showHidden.value || !isHiddenShow(entry.show)));
+
     const listItems = computed<readonly ShowListItem[]>(() =>
-        sortEntries(scopedEntries.value, sortMode.value)
+        sortEntries(listedEntries.value, sortMode.value)
             .filter((entry) => showCompleted.value || !isCompletedEntry(entry))
             .map(toListItem));
 
-    const summaryText = computed(() => buildSummaryText(visibleEntries.value));
+    const summaryText = computed(() => buildSummaryText(activeEntries.value));
 
     const trackedProviderShowIds = computed<ReadonlySet<string>>(() => toProviderShowIdSet(visibleShows.value));
 
-    const completedCount = computed<number>(() => scopedEntries.value.filter(isCompletedEntry).length);
+    const fullyHiddenProviderShowIds = computed<ReadonlySet<string>>(() =>
+        computeFullyHiddenProviderShowIds(visibleEntries.value));
+
+    const hiddenCount = computed<number>(() => scopedEntries.value.filter((entry) => isHiddenShow(entry.show)).length);
+
+    const completedCount = computed<number>(() => listedEntries.value.filter(isCompletedEntry).length);
 
     const hasTrackedShows = computed<boolean>(() => visibleEntries.value.length > 0);
-
-    const hasScopedShows = computed<boolean>(() => scopedEntries.value.length > 0);
 
     function requestWatch(showId: string): void {
         const item = listItems.value.find((candidate) => candidate.id === showId);
@@ -201,9 +214,10 @@ export function useTrackedShows(
         listItems,
         summaryText,
         trackedProviderShowIds,
+        fullyHiddenProviderShowIds,
+        hiddenCount,
         completedCount,
         hasTrackedShows,
-        hasScopedShows,
         pendingWatch,
         requestWatch,
         cancelPendingWatch,
@@ -262,6 +276,24 @@ function toProviderShowIdSet(shows: readonly TrackedShow[]): ReadonlySet<string>
     return new Set(providerShowIds);
 }
 
+function computeFullyHiddenProviderShowIds(entries: readonly ShowComputation[]): ReadonlySet<string> {
+    const entryGroupsByProviderShowId = groupEntriesByProviderShowId(entries);
+    const fullyHiddenGroups = [...entryGroupsByProviderShowId].filter(
+        ([, group]) => group.every((entry) => isHiddenShow(entry.show)));
+    const fullyHiddenProviderShowIds = fullyHiddenGroups.map(([providerShowId]) => providerShowId);
+    return new Set(fullyHiddenProviderShowIds);
+}
+
+function groupEntriesByProviderShowId(entries: readonly ShowComputation[]): Map<string, readonly ShowComputation[]> {
+    const groups = new Map<string, readonly ShowComputation[]>();
+    for (const entry of entries) {
+        const providerShowId = entry.show.providerShowId;
+        const existingGroup = groups.get(providerShowId) ?? [];
+        groups.set(providerShowId, [...existingGroup, entry]);
+    }
+    return groups;
+}
+
 function buildSummaryText(entries: readonly ShowComputation[]): string {
     const healthyEntries = entries.filter(isHealthyEntry);
     const newEpisodesCount = healthyEntries.reduce((total, entry) => total + entry.watchPosition.backlogCount, 0);
@@ -299,6 +331,7 @@ function buildDegradedListItem(show: TrackedShow, errorMessage: string, privacyM
         canConfirmWatched: false,
         firstUnwatchedEpisodeId: undefined,
         errorMessage,
+        isHidden: isHiddenShow(show),
         ...privacyMarker
     };
 }
@@ -322,6 +355,7 @@ function buildHealthyListItem(
         canConfirmWatched: watchPosition.firstUnwatchedEpisode !== undefined,
         firstUnwatchedEpisodeId: watchPosition.firstUnwatchedEpisode?.providerEpisodeId,
         errorMessage: undefined,
+        isHidden: isHiddenShow(show),
         ...privacyMarker
     };
 }

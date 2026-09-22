@@ -10,9 +10,11 @@ import type { Episode, ProgressEvent, ProgressOutcome, ResetProgressOutcome, Sea
 import { advanceProgress } from '@/domain/progressAdvance';
 import { resetProgress } from '@/domain/progressReset';
 import { undoLastProgress } from '@/domain/progressUndo';
+import { withHiddenShow, withListedShow } from '@/domain/showListing';
 import { withPrivateVisibility, withSharedVisibility } from '@/domain/showVisibility';
 import type {
     AddShowOutcome,
+    ChangeListingOutcome,
     ChangeProviderOutcome,
     ChangeVisibilityOutcome,
     RemoveShowOutcome,
@@ -111,6 +113,15 @@ function buildFakeStore(initialShow: TrackedShow | undefined, initialEvents: rea
                 ? withSharedVisibility(show)
                 : withPrivateVisibility(show, targetAudience.profileId);
             show = { ...visibleShow, updatedAt };
+            notify();
+            return Promise.resolve({ outcome: 'changed' });
+        },
+        changeListing(showId: string, targetListing, updatedAt: string): Promise<ChangeListingOutcome> {
+            if (show === undefined || show.id !== showId) {
+                return Promise.resolve({ outcome: 'rejected', reason: SHOW_NOT_FOUND_REASON });
+            }
+            const listedShow = targetListing === 'hidden' ? withHiddenShow(show) : withListedShow(show);
+            show = { ...listedShow, updatedAt };
             notify();
             return Promise.resolve({ outcome: 'changed' });
         },
@@ -354,6 +365,7 @@ describe('useShowDetail — conflitto di revisione sull\'undo', () => {
             updateCatalog: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
             changeProvider: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
             changeVisibility: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
+            changeListing: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
             advanceProgress: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
             undoLastProgress: () => Promise.resolve({ outcome: 'rejected', reason: conflictReason }),
             resetProgress: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
@@ -514,6 +526,103 @@ describe('useShowDetail — cambio di visibilità', () => {
 
         controller.dismissResetSuggestion();
         expect(controller.resetSuggestionVisible.value).toBe(false);
+    });
+});
+
+describe('useShowDetail — comando di nascondere e riportare in elenco', () => {
+    it('il comando inverte lo stato della serie e delega allo store con il bersaglio giusto', async () => {
+        const { store, getShow } = buildFakeStore(buildTwoSeasonShow());
+        const { controller } = mountShowDetail('show-1', buildDeps({ store }));
+        await flushPromises();
+
+        expect(readyContent(controller).listing).toBe('listed');
+
+        const hideOutcome = await controller.changeListing('hidden');
+        await flushPromises();
+
+        expect(hideOutcome).toEqual({ outcome: 'changed' });
+        expect(getShow()?.hidden).toBe(true);
+        expect(readyContent(controller).listing).toBe('hidden');
+
+        const listOutcome = await controller.changeListing('listed');
+        await flushPromises();
+
+        expect(listOutcome).toEqual({ outcome: 'changed' });
+        expect(getShow()?.hidden).toBeUndefined();
+        expect(readyContent(controller).listing).toBe('listed');
+    });
+
+    it('non apre alcun dialogo di conferma: il cambiamento è immediato', async () => {
+        const { store, getShow } = buildFakeStore(buildTwoSeasonShow());
+        const { controller } = mountShowDetail('show-1', buildDeps({ store }));
+        await flushPromises();
+
+        await controller.changeListing('hidden');
+
+        expect(getShow()?.hidden).toBe(true);
+    });
+
+    it('cambiare visibilità non cambia lo stato di nascosta', async () => {
+        const { store, getShow } = buildFakeStore(buildTwoSeasonShow());
+        const { controller } = mountShowDetail('show-1', buildDeps({ store }));
+        await flushPromises();
+
+        await controller.changeListing('hidden');
+        await flushPromises();
+
+        await controller.changeVisibility('private');
+        await flushPromises();
+
+        expect(getShow()?.hidden).toBe(true);
+        expect(readyContent(controller).listing).toBe('hidden');
+        expect(getShow()?.visibility).toBe('private');
+    });
+
+    it('azzerare una serie nascosta non la riporta in elenco', async () => {
+        const show = buildTwoSeasonShow({ lastWatchedEpisodeId: 's1e1' });
+        const { store, getShow } = buildFakeStore(show);
+        const { controller } = mountShowDetail('show-1', buildDeps({ store }));
+        await flushPromises();
+
+        await controller.changeListing('hidden');
+        await flushPromises();
+
+        controller.requestReset();
+        controller.setResetTargetPosition({ kind: 'notStarted' });
+        await controller.confirmPendingReset();
+        await flushPromises();
+
+        expect(getShow()?.lastWatchedEpisodeId).toBeUndefined();
+        expect(getShow()?.hidden).toBe(true);
+        expect(readyContent(controller).listing).toBe('hidden');
+    });
+
+    it('non tocca posizione, progressRevision, eventi e visibilità', async () => {
+        const events: readonly ProgressEvent[] = [{
+            id: 'event-1',
+            trackedShowId: 'show-1',
+            confirmedEpisodeId: 's1e1',
+            seasonNumber: 1,
+            episodeNumber: 1,
+            episodeTitle: 'S1E1',
+            confirmedAt: '2026-01-01T00:00:00Z',
+            confirmedBy: FABIO
+        }];
+        const show = buildTwoSeasonShow({ lastWatchedEpisodeId: 's1e1', progressRevision: 2 });
+        const { store, getShow, getEvents } = buildFakeStore(show, events);
+        const { controller } = mountShowDetail('show-1', buildDeps({ store }));
+        await flushPromises();
+        const audienceBefore = readyContent(controller).audience;
+
+        await controller.changeListing('hidden');
+        await flushPromises();
+        await controller.changeListing('listed');
+        await flushPromises();
+
+        expect(getShow()?.lastWatchedEpisodeId).toBe('s1e1');
+        expect(getShow()?.progressRevision).toBe(2);
+        expect(getEvents()).toEqual(events);
+        expect(readyContent(controller).audience).toEqual(audienceBefore);
     });
 });
 
@@ -694,6 +803,7 @@ describe('useShowDetail — sottoscrizione', () => {
             updateCatalog: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
             changeProvider: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
             changeVisibility: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
+            changeListing: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
             advanceProgress: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
             undoLastProgress: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
             resetProgress: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),

@@ -46,6 +46,12 @@ function resolveActiveProfileIdFromSession(): string {
 
 **Perché conta comunque.** Ogni fase di questo progetto si chiude con «suite verde». Un test che a volte fallisce senza motivo addestra a ignorare il rosso, e il primo rosso vero passa inosservato. Se la frequenza aumenta, va affrontato prima di qualunque altra cosa.
 
+**Diagnosi, aggiunta il 2026-09-22 dopo cinque comparse in una giornata.** Non è un timer applicativo. Il test che cade è **sempre il primo del file**, e paga da solo il costo di avvio del worker: la trasformazione Vite dell'intero grafo di dipendenze di `HomeView.vue` — quasi tutti i composable e i moduli di dominio — più l'istanziazione di un ambiente **jsdom** dedicato. Le esecuzioni successive dello stesso file sono 5-10 volte più veloci (350-450 ms contro 2400-4535 ms) perché riusano cache e ambiente. A suite piena quel costo compete con 57 file in parallelo e occasionalmente supera i 5000 ms di soglia: in isolamento non ci si avvicina mai. La causa strutturale è che **26 file su 58** sovrascrivono a `jsdom` l'ambiente `node` predefinito, e un worker paga il cambio.
+
+`HomeView.spec.ts` usa un router locale e **non** attraversa la guardia di sessione da 5000 ms di `src/router/index.ts`: quella resta invece il sospetto principale per la flakiness gemella di `router/index.spec.ts`, che monta il router vero. Sono due difetti diversi sotto lo stesso sintomo.
+
+**Tre rimedi, in ordine di costo.** Alzare il timeout del solo file: una riga, ma maschera il sintomo e lascerebbe passare inosservato un vero regresso di prestazioni. Separare i file `jsdom` da quelli `node` in due gruppi Vitest: affronta la causa, costa una modifica a `vite.config.ts` e allo script `test`. Ridurre la concorrenza dei worker: scambia velocità della suite per meno contesa di memoria, ed è probabilmente il più economico rispetto al beneficio su questa macchina.
+
 **Cosa sapere prima di farla.** Il sospetto è un timer o un debounce atteso con tempi reali invece che con i tempi finti di Vitest; `HomeView` monta componenti che dipendono da `localStorage` e da sottoscrizioni. Da guardare prima: i test che asseriscono su elementi che compaiono dopo un'attesa.
 
 ---
@@ -59,6 +65,20 @@ function resolveActiveProfileIdFromSession(): string {
 **Il residuo accettato.** Una conferma scritta nella finestra fra il commit della transazione e la cancellazione degli eventi può essere cancellata. Nel caso peggiore produce un rifiuto esplicito dell'annullamento, mai una corruzione silenziosa.
 
 **Cosa sapere prima di toccarla.** Esiste una proposta non applicata: un test di «fallimento a metà» per il reset Firestore, analogo a quello che esiste per Dexie. Non è stato scritto perché coprirebbe un limite già accettato e già coperto in `replaceAllShows`. Se si riapre il tema, quello è il punto da cui partire.
+
+---
+
+## 5. Ridurre la concorrenza dei worker di Vitest
+
+**Cosa.** Far girare la suite con meno worker in parallelo, scambiando un po' di velocità totale per molta meno contesa di memoria sulla macchina di sviluppo. Oggi il blocco `test` di `vite.config.ts` dichiara **solo** `environment`, `include` e `setupFiles`: nessuna opzione di pool, quindi Vitest usa il parallelismo predefinito su tutti i core. L'intervento consiste nell'aggiungere lì la configurazione che limita i worker — nella 3.2.7 si passa da `poolOptions` (per esempio `maxThreads`, oppure `pool: 'forks'` con `maxForks`), ma **la forma esatta va verificata sulla documentazione della versione installata**, non copiata da qui a memoria.
+
+**Perché farlo.** È il rimedio scelto per il difetto della voce 3, di cui la diagnosi è scritta lì: i timeout intermittenti cadono sempre sul **primo** test di un file, che paga da solo l'avvio del worker mentre altri 57 file competono per CPU e memoria. Meno worker significa meno contesa proprio nel momento in cui quel costo si paga. È anche il rimedio più economico rispetto al beneficio fra i tre valutati: non maschera il sintomo come alzare il timeout, e non richiede di riorganizzare la suite in due gruppi come la separazione `jsdom` / `node`.
+
+**Non è solo una questione di test.** Durante lo sviluppo della feature «nascondi serie» (22 settembre 2026) un comando in background è stato **ucciso dal sistema** perché la memoria era criticamente scarsa, e da quel momento ogni fase è stata eseguita con una sola esecuzione per volta. La contesa di memoria su questa macchina è un fatto misurato, non un'ipotesi.
+
+**Perché è stata rimandata.** È debito preesistente ed estraneo alla feature che l'ha fatto notare: toccare la configurazione della suite mentre si chiude una feature avrebbe mescolato due cause nello stesso diff, proprio mentre si usava la suite per giudicare il lavoro.
+
+**Cosa sapere prima di farla.** Serve una misura, non un'impressione: prima di cambiare, cronometrare `npm test` a suite piena almeno tre volte e annotare durata e comparse del timeout; dopo, rifare la stessa misura. Se la durata totale peggiora molto e i timeout non spariscono, il rimedio è sbagliato e va scartato invece che accumulato. Da tenere presente che la causa strutturale resta un'altra — **26 file su 58** sovrascrivono a `jsdom` l'ambiente `node` predefinito e un worker paga il cambio — quindi questo intervento riduce la frequenza del sintomo senza rimuoverne l'origine: se dopo la misura il problema resta, la voce 3 va riaperta sulla separazione dei due gruppi.
 
 ---
 

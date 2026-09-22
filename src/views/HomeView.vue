@@ -8,6 +8,7 @@ import EmptyState from '@/components/feedback/EmptyState.vue';
 import ImportSummaryCard from '@/components/feedback/ImportSummaryCard.vue';
 import ToastMessage from '@/components/feedback/ToastMessage.vue';
 import CompletedVisibilityToggle from '@/components/show/CompletedVisibilityToggle.vue';
+import HiddenShowsToggle from '@/components/show/HiddenShowsToggle.vue';
 import ShowCard from '@/components/show/ShowCard.vue';
 import ShowScopeToggle from '@/components/show/ShowScopeToggle.vue';
 import SortSelect from '@/components/show/SortSelect.vue';
@@ -15,6 +16,7 @@ import type { AddShowDeps } from '@/composables/useAddShow';
 import { useBackup } from '@/composables/useBackup';
 import { useCatalogRefresh } from '@/composables/useCatalogRefresh';
 import { useCompletedVisibilityPreference } from '@/composables/useCompletedVisibilityPreference';
+import { useHiddenShowsPreference } from '@/composables/useHiddenShowsPreference';
 import { useRefreshNotice } from '@/composables/useRefreshNotice';
 import { useScopePreference } from '@/composables/useScopePreference';
 import { useSortPreference } from '@/composables/useSortPreference';
@@ -30,19 +32,21 @@ const BACKUP_EXPORTED_MESSAGE = 'Backup esportato.';
 const BACKUP_MERGED_MESSAGE = 'Backup unito alle serie locali.';
 const BACKUP_REPLACED_MESSAGE = 'Serie locali sostituite con il contenuto del backup.';
 const REPLACE_CONFIRM_MESSAGE = 'Le serie locali non presenti nel file verranno perdute. Continuare?';
-const SCOPE_EMPTY_TITLE = 'Nessuna serie solo tua';
-const SCOPE_EMPTY_DESCRIPTION = 'Con la lente «Solo le mie» vedi solo le serie private. '
-    + 'Torna a «Tutto» per rivedere anche quelle condivise.';
-const COMPLETED_HIDDEN_TITLE = 'Le tue serie sono tutte completate';
-const COMPLETED_HIDDEN_DESCRIPTION = 'Sono nascoste dal filtro «Mostra completate». '
-    + 'Usa il pulsante qui sopra per rivederle.';
+const FILTERED_EMPTY_TITLE = 'In base ai filtri impostati la lista è vuota';
+const FILTERED_EMPTY_DESCRIPTION = 'Usa i pulsanti qui sopra per rivedere le serie nascoste o completate.';
 
 const refreshNotice = useRefreshNotice();
 const catalogRefresh = useCatalogRefresh();
 const sortPreference = useSortPreference();
 const completedVisibility = useCompletedVisibilityPreference();
 const scopePreference = useScopePreference();
-const trackedShows = useTrackedShows(sortPreference.mode, completedVisibility.showCompleted, scopePreference.scope);
+const hiddenShows = useHiddenShowsPreference();
+const trackedShows = useTrackedShows(
+    sortPreference.mode,
+    completedVisibility.showCompleted,
+    scopePreference.scope,
+    hiddenShows.showHidden
+);
 const backup = useBackup();
 
 const toastMessage = ref<string>();
@@ -54,12 +58,14 @@ onMounted(() => {
     void catalogRefresh.checkBackgroundRefresh();
 });
 
-const addShowDeps: AddShowDeps = { trackedProviderShowIds: trackedShows.trackedProviderShowIds };
+const addShowDeps: AddShowDeps = {
+    trackedProviderShowIds: trackedShows.trackedProviderShowIds,
+    fullyHiddenProviderShowIds: trackedShows.fullyHiddenProviderShowIds
+};
 
 const hasAnyTrackedShow = computed(() => trackedShows.hasTrackedShows.value);
 const hasVisibleShows = computed(() => trackedShows.listItems.value.length > 0);
-const isScopeEmptyState = computed(() => scopePreference.scope.value === 'mine' && !trackedShows.hasScopedShows.value);
-const isCompletedHiddenState = computed(() => !hasVisibleShows.value && trackedShows.hasScopedShows.value);
+const isFilteredEmptyState = computed(() => !hasVisibleShows.value && hasAnyTrackedShow.value);
 const isConfirmDialogOpen = computed(() => trackedShows.pendingWatch.value !== undefined);
 const confirmMessage = computed(() => {
     const target = trackedShows.pendingWatch.value;
@@ -72,6 +78,10 @@ function changeSortMode(mode: ShowSortMode): void {
 
 function changeCompletedVisibility(showCompleted: boolean): void {
     completedVisibility.showCompleted.value = showCompleted;
+}
+
+function changeHiddenShows(showHidden: boolean): void {
+    hiddenShows.showHidden.value = showHidden;
 }
 
 function changeScope(scope: ShowScope): void {
@@ -194,6 +204,11 @@ async function confirmReplaceImport(): Promise<void> {
           :show-completed="completedVisibility.showCompleted.value"
           @change="changeCompletedVisibility"
         />
+        <HiddenShowsToggle
+          v-if="trackedShows.hiddenCount.value > 0"
+          :show-hidden="hiddenShows.showHidden.value"
+          @change="changeHiddenShows"
+        />
       </div>
     </template>
 
@@ -210,15 +225,9 @@ async function confirmReplaceImport(): Promise<void> {
     </div>
 
     <EmptyState
-      v-else-if="isScopeEmptyState"
-      :title="SCOPE_EMPTY_TITLE"
-      :description="SCOPE_EMPTY_DESCRIPTION"
-    />
-
-    <EmptyState
-      v-else-if="isCompletedHiddenState"
-      :title="COMPLETED_HIDDEN_TITLE"
-      :description="COMPLETED_HIDDEN_DESCRIPTION"
+      v-else-if="isFilteredEmptyState"
+      :title="FILTERED_EMPTY_TITLE"
+      :description="FILTERED_EMPTY_DESCRIPTION"
     />
 
     <EmptyState

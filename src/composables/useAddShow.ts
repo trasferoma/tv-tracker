@@ -21,6 +21,8 @@ import type { AddShowOutcome, TrackedShowStore } from '@/persistence/trackedShow
 const SEARCH_DEBOUNCE_MS = 500;
 const SHOW_UNAVAILABLE_REASON = 'Questa serie non è più disponibile nel catalogo.';
 const DUPLICATE_SHOW_REASON = 'Questa serie è già stata aggiunta.';
+const DUPLICATE_HIDDEN_SHOW_REASON =
+    'Questa serie è già stata aggiunta ed è nascosta dall\'elenco: puoi riportarla in elenco dal suo dettaglio.';
 const UNEXPECTED_ERROR_REASON = 'Si è verificato un errore imprevisto. Riprova.';
 
 export type AddShowStep = 'search' | 'provider' | 'position';
@@ -56,6 +58,7 @@ export interface AddShowDeps {
     readonly resolveActiveProfileId?: () => string;
     readonly debounceMs?: number;
     readonly trackedProviderShowIds?: { readonly value: ReadonlySet<string> };
+    readonly fullyHiddenProviderShowIds?: { readonly value: ReadonlySet<string> };
 }
 
 export interface UseAddShow {
@@ -94,6 +97,7 @@ export function useAddShow(deps: AddShowDeps = {}): UseAddShow {
     const resolveActiveProfileId = deps.resolveActiveProfileId ?? resolveActiveProfileIdFromSession;
     const debounceMs = deps.debounceMs ?? SEARCH_DEBOUNCE_MS;
     const trackedProviderShowIds = deps.trackedProviderShowIds ?? { value: new Set<string>() };
+    const fullyHiddenProviderShowIds = deps.fullyHiddenProviderShowIds ?? { value: new Set<string>() };
 
     const step = ref<AddShowStep>('search');
     const query = ref('');
@@ -143,7 +147,8 @@ export function useAddShow(deps: AddShowDeps = {}): UseAddShow {
     async function chooseResult(result: SearchResultItem): Promise<void> {
         clearPendingSearch();
         if (isAlreadyTracked(result.providerShowId)) {
-            rejectSelection(DUPLICATE_SHOW_REASON);
+            const duplicateReason = resolveDuplicateShowReason(result.providerShowId);
+            rejectSelection(duplicateReason);
             return;
         }
         step.value = 'provider';
@@ -177,6 +182,10 @@ export function useAddShow(deps: AddShowDeps = {}): UseAddShow {
 
     function isAlreadyTracked(providerShowId: string): boolean {
         return trackedProviderShowIds.value.has(providerShowId);
+    }
+
+    function resolveDuplicateShowReason(providerShowId: string): string {
+        return fullyHiddenProviderShowIds.value.has(providerShowId) ? DUPLICATE_HIDDEN_SHOW_REASON : DUPLICATE_SHOW_REASON;
     }
 
     async function loadProviders(providerShowId: string): Promise<readonly ItalianProvider[]> {

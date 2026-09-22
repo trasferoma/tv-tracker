@@ -1,4 +1,5 @@
 import { toCatalogDate } from '@/domain/catalogDate';
+import { isHiddenShow, withHiddenShow, withListedShow } from '@/domain/showListing';
 import { resolveShowAudience, withPrivateVisibility, withSharedVisibility } from '@/domain/showVisibility';
 import type { ProgressEvent, TrackedShow } from '@/domain/trackedShow';
 import type { TrackedShowStore, Unsubscribe } from '@/persistence/trackedShowStore';
@@ -24,6 +25,15 @@ function normalizeVisibility(show: TrackedShow): TrackedShow {
         : withSharedVisibility(show);
 }
 
+function normalizeListing(show: TrackedShow): TrackedShow {
+    return isHiddenShow(show) ? withHiddenShow(show) : withListedShow(show);
+}
+
+function normalizeShowForExport(show: TrackedShow): TrackedShow {
+    const withNormalizedVisibility = normalizeVisibility(show);
+    return normalizeListing(withNormalizedVisibility);
+}
+
 export function buildBackupFile(
     shows: readonly TrackedShow[],
     progressEvents: readonly ProgressEvent[],
@@ -32,7 +42,7 @@ export function buildBackupFile(
     return {
         formatVersion: BACKUP_FORMAT_VERSION,
         exportedAt: exportedAt.toISOString(),
-        shows: shows.map(normalizeVisibility),
+        shows: shows.map(normalizeShowForExport),
         progressEvents
     };
 }

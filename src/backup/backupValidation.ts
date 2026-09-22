@@ -56,6 +56,7 @@ function parseShow(rawShow: unknown, index: number): TrackedShow {
         show.selectedStreamingProviderName, `${label}: selectedStreamingProviderName`);
     const visibility = requireVisibility(show.visibility, `${label}: visibility`);
     const privateFor = requireOptionalString(show.privateFor, `${label}: privateFor`);
+    const hidden = requireOptionalBoolean(show.hidden, `${label}: hidden`);
     const lastWatchedEpisodeId = requireOptionalString(show.lastWatchedEpisodeId, `${label}: lastWatchedEpisodeId`);
     requireKnownLastWatchedEpisode(lastWatchedEpisodeId, seasons, label);
     const progressRevision = requireNonNegativeInteger(show.progressRevision, `${label}: progressRevision`);
@@ -76,6 +77,7 @@ function parseShow(rawShow: unknown, index: number): TrackedShow {
         selectedStreamingProviderName,
         visibility,
         privateFor,
+        hidden,
         lastWatchedEpisodeId,
         progressRevision,
         addedAt,
@@ -200,6 +202,16 @@ function requireOptionalString(value: unknown, label: string): string | undefine
         return undefined;
     }
     return requireString(value, label);
+}
+
+function requireOptionalBoolean(value: unknown, label: string): boolean | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (typeof value !== 'boolean') {
+        fail(`${label} deve essere un valore booleano.`);
+    }
+    return value;
 }
 
 function requireOptionalCatalogDate(value: unknown, label: string): string | undefined {

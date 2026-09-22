@@ -59,6 +59,20 @@ const resetSuggestionMessage = computed(() => {
         : `Ora “${title}” è visibile a entrambi. Se volete ripartire da una puntata vista insieme, usate «Azzera tracciamento».`;
 });
 
+const listingButtonLabel = computed(() => (readyContent.value?.listing === 'hidden' ? 'Riporta in elenco' : 'Nascondi serie'));
+
+const hiddenListingMessage = computed(() => {
+    const title = readyContent.value?.title;
+    return title === undefined
+        ? ''
+        : `“${title}” è nascosta dall'elenco. Puoi riportarla da qui o con «Mostra nascoste» nella home.`;
+});
+
+const listedListingMessage = computed(() => {
+    const title = readyContent.value?.title;
+    return title === undefined ? '' : `“${title}” è di nuovo in elenco.`;
+});
+
 function goHome(): void {
     void router.push({ name: 'home' });
 }
@@ -111,6 +125,23 @@ async function handleVisibilityChange(targetKind: ShowAudience['kind']): Promise
     if (detail.resetSuggestionVisible.value) {
         toastMessage.value = resetSuggestionMessage.value;
     }
+}
+
+async function handleListingChange(): Promise<void> {
+    const currentListing = readyContent.value?.listing;
+    if (currentListing === undefined) {
+        return;
+    }
+    const targetListing = currentListing === 'hidden' ? 'listed' : 'hidden';
+    const outcome = await detail.changeListing(targetListing);
+    if (outcome === undefined) {
+        return;
+    }
+    if (outcome.outcome === 'rejected') {
+        toastMessage.value = outcome.reason;
+        return;
+    }
+    toastMessage.value = targetListing === 'hidden' ? hiddenListingMessage.value : listedListingMessage.value;
 }
 
 async function confirmReset(): Promise<void> {
@@ -202,6 +233,21 @@ function dismissToast(): void {
       />
 
       <SpecialsSection :episodes="readyContent.specials" />
+
+      <p
+        v-if="readyContent.listing === 'hidden'"
+        class="hidden-note"
+      >
+        Questa serie è nascosta dall'elenco.
+      </p>
+
+      <button
+        type="button"
+        class="listing"
+        @click="handleListingChange"
+      >
+        {{ listingButtonLabel }}
+      </button>
 
       <button
         type="button"
@@ -387,10 +433,27 @@ function dismissToast(): void {
     font-weight: 850;
 }
 
+.hidden-note {
+    margin: 18px 2px 0;
+    color: var(--text-dim);
+    font-size: 13px;
+}
+
+.listing {
+    width: 100%;
+    min-height: var(--tap);
+    margin-top: 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text);
+    font-weight: 850;
+}
+
 .reset {
     width: 100%;
     min-height: var(--tap);
-    margin-top: 18px;
+    margin-top: 10px;
     border: 1px solid var(--danger-border);
     border-radius: var(--radius-sm);
     background: var(--surface);

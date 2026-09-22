@@ -7,10 +7,12 @@ import ShowDetailView from './ShowDetailView.vue';
 import type { ShowDetailDeps } from '@/composables/useShowDetail';
 import { advanceProgress } from '@/domain/progressAdvance';
 import { resetProgress } from '@/domain/progressReset';
+import { withHiddenShow, withListedShow } from '@/domain/showListing';
 import { withPrivateVisibility, withSharedVisibility } from '@/domain/showVisibility';
 import type { Episode, ProgressEvent, ProgressOutcome, ResetProgressOutcome, Season, TrackedShow } from '@/domain/trackedShow';
 import type {
     AddShowOutcome,
+    ChangeListingOutcome,
     ChangeProviderOutcome,
     ChangeVisibilityOutcome,
     RemoveShowOutcome,
@@ -89,6 +91,15 @@ function buildFakeStore(initialShow: TrackedShow | undefined): {
                 ? withSharedVisibility(show)
                 : withPrivateVisibility(show, targetAudience.profileId);
             show = { ...visibleShow, updatedAt };
+            notify();
+            return Promise.resolve({ outcome: 'changed' });
+        },
+        changeListing(showId: string, targetListing, updatedAt: string): Promise<ChangeListingOutcome> {
+            if (show === undefined || show.id !== showId) {
+                return Promise.resolve({ outcome: 'rejected', reason: 'La serie non esiste più.' });
+            }
+            const listedShow = targetListing === 'hidden' ? withHiddenShow(show) : withListedShow(show);
+            show = { ...listedShow, updatedAt };
             notify();
             return Promise.resolve({ outcome: 'changed' });
         },
@@ -250,6 +261,7 @@ describe('ShowDetailView — conflitto di revisione sull\'undo', () => {
             updateCatalog: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
             changeProvider: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
             changeVisibility: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
+            changeListing: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
             advanceProgress: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
             undoLastProgress: () => Promise.resolve({ outcome: 'rejected', reason: conflictReason }),
             resetProgress: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
@@ -363,5 +375,149 @@ describe('ShowDetailView — serie privata dell\'altra persona aperta per indiri
 
         expect(wrapper.text()).toContain('Serie di prova');
         expect(wrapper.find('.visibility-choice[aria-pressed="true"]').text()).toBe('Solo per me');
+    });
+});
+
+describe('ShowDetailView — comando di nascondere', () => {
+    it('la nota compare solo sulle serie nascoste', async () => {
+        const { store: listedStore } = buildFakeStore(buildShow());
+        const listedWrapper = mountShowDetailView(buildDeps({ store: listedStore }));
+        await flushPromises();
+
+        expect(listedWrapper.find('.hidden-note').exists()).toBe(false);
+
+        const { store: hiddenStore } = buildFakeStore(withHiddenShow(buildShow()));
+        const hiddenWrapper = mountShowDetailView(buildDeps({ store: hiddenStore }));
+        await flushPromises();
+
+        expect(hiddenWrapper.find('.hidden-note').text()).toBe('Questa serie è nascosta dall\'elenco.');
+    });
+
+    it('il comando si inverte fra i due stati e chiama il composable col bersaglio giusto', async () => {
+        const { store, getShow } = buildFakeStore(buildShow());
+        const wrapper = mountShowDetailView(buildDeps({ store }));
+        await flushPromises();
+
+        expect(wrapper.find('.listing').text()).toBe('Nascondi serie');
+
+        await wrapper.find('.listing').trigger('click');
+        await flushPromises();
+
+        expect(getShow()?.hidden).toBe(true);
+        expect(wrapper.find('.listing').text()).toBe('Riporta in elenco');
+
+        await wrapper.find('.listing').trigger('click');
+        await flushPromises();
+
+        expect(getShow()?.hidden).toBeUndefined();
+        expect(wrapper.find('.listing').text()).toBe('Nascondi serie');
+    });
+
+    it('premerlo non apre alcun dialogo di conferma', async () => {
+        const { store } = buildFakeStore(buildShow());
+        const wrapper = mountShowDetailView(buildDeps({ store }));
+        await flushPromises();
+
+        await wrapper.find('.listing').trigger('click');
+        await flushPromises();
+
+        for (const dialog of wrapper.findAll('.confirm-dialog')) {
+            expect((dialog.element as HTMLDialogElement).open).toBe(false);
+        }
+    });
+
+    it('mostra il messaggio effimero corretto dopo aver nascosto la serie', async () => {
+        const { store } = buildFakeStore(buildShow());
+        const wrapper = mountShowDetailView(buildDeps({ store }));
+        await flushPromises();
+
+        await wrapper.find('.listing').trigger('click');
+        await flushPromises();
+
+        expect(wrapper.find('.toast').text()).toBe(
+            '“Serie di prova” è nascosta dall\'elenco. Puoi riportarla da qui o con «Mostra nascoste» nella home.'
+        );
+    });
+
+    it('mostra il messaggio effimero corretto dopo aver riportato la serie in elenco', async () => {
+        const { store } = buildFakeStore(withHiddenShow(buildShow()));
+        const wrapper = mountShowDetailView(buildDeps({ store }));
+        await flushPromises();
+
+        await wrapper.find('.listing').trigger('click');
+        await flushPromises();
+
+        expect(wrapper.find('.toast').text()).toBe('“Serie di prova” è di nuovo in elenco.');
+    });
+
+    it('il dettaglio di una serie nascosta aperto per indirizzo diretto si vede normalmente', async () => {
+        const { store } = buildFakeStore(withHiddenShow(buildShow()));
+        const wrapper = mountShowDetailView(buildDeps({ store }));
+        await flushPromises();
+
+        expect(wrapper.text()).toContain('Serie di prova');
+        expect(wrapper.find('.listing').text()).toBe('Riporta in elenco');
+    });
+
+    it('sceglie il messaggio in base al bersaglio del comando, non a uno stato riletto dopo l\'aggiornamento', async () => {
+        let currentShow = buildShow();
+        let subscriptionListener: TrackedShowListener | undefined;
+        let resolveChangeListing: (outcome: ChangeListingOutcome) => void = () => {};
+        const changeListingPromise = new Promise<ChangeListingOutcome>((resolve) => {
+            resolveChangeListing = resolve;
+        });
+        const store: TrackedShowStore = {
+            subscribeToTrackedShows: () => () => {},
+            subscribeToShow: (showId, listener) => {
+                subscriptionListener = listener;
+                listener(currentShow.id === showId ? currentShow : undefined);
+                return () => {};
+            },
+            addShow: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
+            updateCatalog: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
+            changeProvider: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
+            changeVisibility: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
+            changeListing: () => changeListingPromise,
+            advanceProgress: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
+            undoLastProgress: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
+            resetProgress: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
+            removeShow: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato' }),
+            listAllProgressEvents: () => Promise.resolve([]),
+            replaceAllShows: () => Promise.reject(new Error('non usato'))
+        };
+        const wrapper = mountShowDetailView(buildDeps({ store }));
+        await flushPromises();
+
+        await wrapper.find('.listing').trigger('click');
+        await flushPromises();
+
+        resolveChangeListing({ outcome: 'changed' });
+        await flushPromises();
+
+        expect(wrapper.find('.toast').text()).toBe(
+            '“Serie di prova” è nascosta dall\'elenco. Puoi riportarla da qui o con «Mostra nascoste» nella home.'
+        );
+        expect(wrapper.find('.listing').text()).toBe('Nascondi serie');
+
+        currentShow = withHiddenShow(currentShow);
+        subscriptionListener?.(currentShow);
+        await flushPromises();
+
+        expect(wrapper.find('.listing').text()).toBe('Riporta in elenco');
+    });
+
+    it('con dati non allineati non compare alcun comando di nascondere', async () => {
+        const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const brokenShow = buildShow({ lastWatchedEpisodeId: 'episodio-inesistente' });
+        const { store } = buildFakeStore(brokenShow);
+        const wrapper = mountShowDetailView(buildDeps({ store }));
+        await flushPromises();
+
+        expect(wrapper.find('.listing').exists()).toBe(false);
+        expect(wrapper.find('.hidden-note').exists()).toBe(false);
+        expect(wrapper.find('.reset').exists()).toBe(false);
+        expect(wrapper.find('.danger').exists()).toBe(false);
+
+        consoleErrorSpy.mockRestore();
     });
 });

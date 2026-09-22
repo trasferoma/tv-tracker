@@ -66,6 +66,7 @@ function buildStoreWithSnapshot(
         updateCatalog: notImplemented,
         changeProvider: (): Promise<ChangeProviderOutcome> => Promise.reject(new Error('non usato in questo test')),
         changeVisibility: notImplemented,
+        changeListing: notImplemented,
         advanceProgress: notImplemented,
         undoLastProgress: notImplemented,
         resetProgress: notImplemented,
@@ -110,6 +111,35 @@ describe('buildBackupFile', () => {
 
         expect(backup.shows[0]?.visibility).toBe('private');
         expect(backup.shows[0]?.privateFor).toBe('fabio');
+        const fileContent = JSON.parse(JSON.stringify(backup)) as unknown;
+        const validation = validateBackupFile(fileContent);
+        expect(validation.valid).toBe(true);
+    });
+
+    it('normalizza a in elenco una serie con hidden false, così il file esportato non porta mai false', () => {
+        const listedShow = buildShow('show-1', { hidden: false });
+        const exportedAt = new Date(2026, 0, 20, 10, 30);
+
+        const backup = buildBackupFile([listedShow], [], exportedAt);
+
+        expect(backup.shows[0]?.hidden).toBeUndefined();
+    });
+
+    it('conserva hidden true per una serie nascosta', () => {
+        const hiddenShow = buildShow('show-1', { hidden: true });
+        const exportedAt = new Date(2026, 0, 20, 10, 30);
+
+        const backup = buildBackupFile([hiddenShow], [], exportedAt);
+
+        expect(backup.shows[0]?.hidden).toBe(true);
+    });
+
+    it('il file esportato da una serie priva sia di visibility sia di hidden supera la validazione dell\'app, come i dati reali in produzione', () => {
+        const productionLikeShow = buildShow('show-1', { visibility: undefined, hidden: undefined });
+        const exportedAt = new Date(2026, 0, 20, 10, 30);
+
+        const backup = buildBackupFile([productionLikeShow], [], exportedAt);
+
         const fileContent = JSON.parse(JSON.stringify(backup)) as unknown;
         const validation = validateBackupFile(fileContent);
         expect(validation.valid).toBe(true);

@@ -80,6 +80,7 @@ function buildMemoryStore(initialShows: readonly TrackedShow[] = []): {
         updateCatalog: () => Promise.resolve({ outcome: 'rejected', reason: 'non implementato nel doppio di test' }),
         changeProvider: () => Promise.resolve({ outcome: 'rejected', reason: 'non implementato nel doppio di test' }),
         changeVisibility: () => Promise.resolve({ outcome: 'rejected', reason: 'non implementato nel doppio di test' }),
+        changeListing: () => Promise.resolve({ outcome: 'rejected', reason: 'non implementato nel doppio di test' }),
         advanceProgress(id: string, targetEpisodeId: string, confirmedBy: string, today: string): Promise<ProgressOutcome> {
             const show = shows.find((candidate) => candidate.id === id);
             if (show === undefined) {
@@ -112,7 +113,8 @@ function mountTrackedShows(
     sortMode: ShowSortMode,
     deps: TrackedShowsDeps,
     showCompleted = true,
-    scope: ShowScope = 'all'
+    scope: ShowScope = 'all',
+    showHidden = false
 ): {
     wrapper: VueWrapper;
     controller: UseTrackedShows;
@@ -120,7 +122,7 @@ function mountTrackedShows(
     let controller!: UseTrackedShows;
     const TestHost = defineComponent({
         setup() {
-            controller = useTrackedShows(ref(sortMode), ref(showCompleted), ref(scope), deps);
+            controller = useTrackedShows(ref(sortMode), ref(showCompleted), ref(scope), ref(showHidden), deps);
             return () => h('div');
         }
     });
@@ -434,6 +436,7 @@ describe('useTrackedShows — sottoscrizione', () => {
             updateCatalog: () => Promise.resolve({ outcome: 'updated' }),
             changeProvider: () => Promise.resolve({ outcome: 'changed' }),
             changeVisibility: () => Promise.resolve({ outcome: 'changed' }),
+            changeListing: () => Promise.resolve({ outcome: 'changed' }),
             advanceProgress: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato in questo test' }),
             undoLastProgress: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato in questo test' }),
             resetProgress: () => Promise.resolve({ outcome: 'rejected', reason: 'non usato in questo test' }),
@@ -619,34 +622,6 @@ describe('useTrackedShows — visibilità delle serie e lente (Fase 7)', () => {
         expect(mineScope.controller.completedCount.value).toBe(1);
     });
 
-    it('hasScopedShows resta vero quando la lente ha serie ma il filtro delle completate le nasconde tutte', async () => {
-        const myPrivateCompletedShow = buildShow({
-            id: 'mia-privata-completata',
-            providerShowId: 'p-mia-privata-completata',
-            title: 'Mia privata completata',
-            visibility: 'private',
-            privateFor: FABIO,
-            lastWatchedEpisodeId: 's1e1'
-        });
-        const { store } = buildMemoryStore([myPrivateCompletedShow]);
-
-        const { controller } = mountTrackedShows('activity', buildDeps({ store }), false, 'mine');
-        await flushPromises();
-
-        expect(controller.listItems.value).toEqual([]);
-        expect(controller.hasScopedShows.value).toBe(true);
-    });
-
-    it('hasScopedShows è falso quando non esiste alcuna serie che rientri nella lente', async () => {
-        const sharedShow = buildShow({ id: 'condivisa', providerShowId: 'p-condivisa', title: 'Condivisa' });
-        const { store } = buildMemoryStore([sharedShow]);
-
-        const { controller } = mountTrackedShows('activity', buildDeps({ store }), true, 'mine');
-        await flushPromises();
-
-        expect(controller.hasScopedShows.value).toBe(false);
-    });
-
     it('il blocco dei duplicati considera il visibile: condivise e mie private sì, private altrui no (criterio 8)', async () => {
         const sharedShow = buildShow({ id: 'condivisa', providerShowId: 'p-condivisa', title: 'Condivisa' });
         const myPrivateShow = buildShow({
@@ -716,6 +691,244 @@ describe('useTrackedShows — visibilità delle serie e lente (Fase 7)', () => {
         const sharedItem = controller.listItems.value.find((item) => item.id === 'condivisa')!;
         expect(privateItem.privateProfileId).toBe(FABIO);
         expect(sharedItem.privateProfileId).toBeUndefined();
+    });
+});
+
+describe('useTrackedShows — stato nascosta e "Mostra nascoste" (Fase 6)', () => {
+    it('il riepilogo esclude le nascoste e non cambia ne con la lente ne con "Mostra nascoste" (criterio 5)', async () => {
+        const hiddenShowWithBacklog = buildShow({
+            id: 'nascosta',
+            providerShowId: 'p-nascosta',
+            title: 'Nascosta',
+            hidden: true,
+            seasons: [buildSeason(1, [
+                buildEpisode(1, 1, 'E1', '2026-01-01'),
+                buildEpisode(1, 2, 'E2', '2026-01-08')
+            ])]
+        });
+        const activeShowWithBacklog = buildShow({
+            id: 'attiva',
+            providerShowId: 'p-attiva',
+            title: 'Attiva',
+            visibility: 'private',
+            privateFor: FABIO,
+            seasons: [buildSeason(1, [buildEpisode(1, 1, 'E1', '2026-01-01')])]
+        });
+        const { store } = buildMemoryStore([hiddenShowWithBacklog, activeShowWithBacklog]);
+
+        const hiddenOff = mountTrackedShows('activity', buildDeps({ store }), true, 'all', false);
+        await flushPromises();
+        const hiddenOn = mountTrackedShows('activity', buildDeps({ store }), true, 'all', true);
+        await flushPromises();
+        const mineScope = mountTrackedShows('activity', buildDeps({ store }), true, 'mine', false);
+        await flushPromises();
+
+        expect(hiddenOff.controller.summaryText.value).toBe('1 nuova puntata in 1 serie');
+        expect(hiddenOn.controller.summaryText.value).toBe(hiddenOff.controller.summaryText.value);
+        expect(mineScope.controller.summaryText.value).toBe(hiddenOff.controller.summaryText.value);
+    });
+
+    it('con "Mostra nascoste" acceso le nascoste ricompaiono nell\'ordinamento corrente, marcate; spento no (criterio 7)', async () => {
+        const hiddenShow = buildShow({ id: 'nascosta', providerShowId: 'p-nascosta', title: 'Nascosta', hidden: true });
+        const listedShow = buildShow({ id: 'elencata', providerShowId: 'p-elencata', title: 'Elencata' });
+        const { store } = buildMemoryStore([hiddenShow, listedShow]);
+
+        const hiddenOff = mountTrackedShows('activity', buildDeps({ store }), true, 'all', false);
+        await flushPromises();
+        expect(hiddenOff.controller.listItems.value.map((item) => item.id)).toEqual(['elencata']);
+
+        const hiddenOn = mountTrackedShows('activity', buildDeps({ store }), true, 'all', true);
+        await flushPromises();
+        expect(hiddenOn.controller.listItems.value.map((item) => item.id).sort()).toEqual(['elencata', 'nascosta']);
+        const hiddenItem = hiddenOn.controller.listItems.value.find((item) => item.id === 'nascosta')!;
+        const listedItem = hiddenOn.controller.listItems.value.find((item) => item.id === 'elencata')!;
+        expect(hiddenItem.isHidden).toBe(true);
+        expect(listedItem.isHidden).toBe(false);
+    });
+
+    it('completedCount e calcolato dopo il filtro delle nascoste (criterio 9)', async () => {
+        const hiddenCompletedShow = buildShow({
+            id: 'nascosta-completata',
+            providerShowId: 'p-nascosta-completata',
+            title: 'Nascosta completata',
+            hidden: true,
+            lastWatchedEpisodeId: 's1e1'
+        });
+        const { store } = buildMemoryStore([hiddenCompletedShow]);
+
+        const hiddenOff = mountTrackedShows('activity', buildDeps({ store }), true, 'all', false);
+        await flushPromises();
+        expect(hiddenOff.controller.completedCount.value).toBe(0);
+
+        const hiddenOn = mountTrackedShows('activity', buildDeps({ store }), true, 'all', true);
+        await flushPromises();
+        expect(hiddenOn.controller.completedCount.value).toBe(1);
+    });
+
+    it('una serie nascosta e completata e raggiungibile in due passi, senza vicoli ciechi (criterio 10, SPEC §5)', async () => {
+        const hiddenCompletedShow = buildShow({
+            id: 'nascosta-completata',
+            providerShowId: 'p-nascosta-completata',
+            title: 'Nascosta completata',
+            hidden: true,
+            lastWatchedEpisodeId: 's1e1'
+        });
+        const { store } = buildMemoryStore([hiddenCompletedShow]);
+
+        const bothOff = mountTrackedShows('activity', buildDeps({ store }), false, 'all', false);
+        await flushPromises();
+        expect(bothOff.controller.completedCount.value).toBe(0);
+        expect(bothOff.controller.hiddenCount.value).toBe(1);
+        expect(bothOff.controller.listItems.value).toEqual([]);
+
+        const onlyHiddenOn = mountTrackedShows('activity', buildDeps({ store }), false, 'all', true);
+        await flushPromises();
+        expect(onlyHiddenOn.controller.completedCount.value).toBe(1);
+        expect(onlyHiddenOn.controller.listItems.value).toEqual([]);
+
+        const bothOn = mountTrackedShows('activity', buildDeps({ store }), true, 'all', true);
+        await flushPromises();
+        expect(bothOn.controller.listItems.value.map((item) => item.id)).toEqual(['nascosta-completata']);
+    });
+
+    it('hasTrackedShows resta vero anche con tutte le serie nascoste (criterio 11)', async () => {
+        const hiddenShow = buildShow({ id: 'nascosta', providerShowId: 'p-nascosta', title: 'Nascosta', hidden: true });
+        const { store } = buildMemoryStore([hiddenShow]);
+
+        const { controller } = mountTrackedShows('activity', buildDeps({ store }), true, 'all', false);
+        await flushPromises();
+
+        expect(controller.hasTrackedShows.value).toBe(true);
+    });
+
+    it('hiddenCount conta le nascoste in lente, non le altre', async () => {
+        const hiddenShared = buildShow({ id: 'nascosta-condivisa', providerShowId: 'p1', title: 'Nascosta condivisa', hidden: true });
+        const hiddenMine = buildShow({
+            id: 'nascosta-mia',
+            providerShowId: 'p2',
+            title: 'Nascosta mia',
+            hidden: true,
+            visibility: 'private',
+            privateFor: FABIO
+        });
+        const listedShow = buildShow({ id: 'elencata', providerShowId: 'p3', title: 'Elencata' });
+        const { store } = buildMemoryStore([hiddenShared, hiddenMine, listedShow]);
+
+        const allScope = mountTrackedShows('activity', buildDeps({ store }), true, 'all', false);
+        await flushPromises();
+        expect(allScope.controller.hiddenCount.value).toBe(2);
+
+        const mineScope = mountTrackedShows('activity', buildDeps({ store }), true, 'mine', false);
+        await flushPromises();
+        expect(mineScope.controller.hiddenCount.value).toBe(1);
+    });
+
+    it('trackedProviderShowIds include anche le nascoste, per continuare a bloccare il duplicato (criterio 12)', async () => {
+        const hiddenShow = buildShow({ id: 'nascosta', providerShowId: 'p-nascosta', title: 'Nascosta', hidden: true });
+        const { store } = buildMemoryStore([hiddenShow]);
+
+        const { controller } = mountTrackedShows('activity', buildDeps({ store }), true, 'all', false);
+        await flushPromises();
+
+        expect(controller.trackedProviderShowIds.value).toEqual(new Set(['p-nascosta']));
+    });
+
+    it('fullyHiddenProviderShowIds contiene una serie solo quando tutte le sue schede visibili sono nascoste', async () => {
+        const hiddenShow = buildShow({ id: 'nascosta', providerShowId: 'p-nascosta', title: 'Nascosta', hidden: true });
+        const listedShow = buildShow({ id: 'elencata', providerShowId: 'p-elencata', title: 'Elencata' });
+        const { store } = buildMemoryStore([hiddenShow, listedShow]);
+
+        const { controller } = mountTrackedShows('activity', buildDeps({ store }), true, 'all', false);
+        await flushPromises();
+
+        expect(controller.fullyHiddenProviderShowIds.value).toEqual(new Set(['p-nascosta']));
+    });
+
+    it('fullyHiddenProviderShowIds esclude una serie che ha anche una sola scheda visibile non nascosta', async () => {
+        const hiddenCard = buildShow({
+            id: 'condivisa-nascosta',
+            providerShowId: 'p-doppia',
+            title: 'Doppia',
+            hidden: true
+        });
+        const listedCard = buildShow({
+            id: 'mia-in-elenco',
+            providerShowId: 'p-doppia',
+            title: 'Doppia',
+            visibility: 'private',
+            privateFor: FABIO
+        });
+        const { store } = buildMemoryStore([hiddenCard, listedCard]);
+
+        const { controller } = mountTrackedShows('activity', buildDeps({ store }), true, 'all', false);
+        await flushPromises();
+
+        expect(controller.fullyHiddenProviderShowIds.value).toEqual(new Set());
+    });
+
+    it('una riga disallineata resta dentro il filtro delle nascoste', async () => {
+        const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const brokenHiddenShow = buildShow({
+            id: 'rotta-nascosta',
+            providerShowId: 'p-rotta-nascosta',
+            title: 'Rotta nascosta',
+            hidden: true,
+            lastWatchedEpisodeId: 'episodio-inesistente'
+        });
+        const { store } = buildMemoryStore([brokenHiddenShow]);
+
+        const hiddenOff = mountTrackedShows('activity', buildDeps({ store }), true, 'all', false);
+        await flushPromises();
+        expect(hiddenOff.controller.listItems.value).toEqual([]);
+
+        const hiddenOn = mountTrackedShows('activity', buildDeps({ store }), true, 'all', true);
+        await flushPromises();
+        expect(hiddenOn.controller.listItems.value).toHaveLength(1);
+        expect(hiddenOn.controller.listItems.value[0]?.errorMessage).toBeDefined();
+
+        consoleErrorSpy.mockRestore();
+    });
+});
+
+describe('useTrackedShows — criterio 4, nascondere è condiviso non personale', () => {
+    it('una serie condivisa nascosta resta fuori dall\'elenco per entrambi i profili', async () => {
+        const hiddenSharedShow = buildShow({
+            id: 'nascosta-condivisa',
+            providerShowId: 'p-nascosta-condivisa',
+            title: 'Nascosta condivisa',
+            hidden: true
+        });
+        const { store } = buildMemoryStore([hiddenSharedShow]);
+
+        const fabioView = mountTrackedShows(
+            'activity', buildDeps({ store, resolveActiveProfileId: () => FABIO }), true, 'all', false);
+        await flushPromises();
+        const ireneView = mountTrackedShows(
+            'activity', buildDeps({ store, resolveActiveProfileId: () => 'irene' }), true, 'all', false);
+        await flushPromises();
+
+        expect(fabioView.controller.listItems.value).toEqual([]);
+        expect(ireneView.controller.listItems.value).toEqual([]);
+    });
+
+    it('con "Mostra nascoste" acceso la stessa serie condivisa nascosta ricompare per entrambi i profili', async () => {
+        const hiddenSharedShow = buildShow({
+            id: 'nascosta-condivisa',
+            providerShowId: 'p-nascosta-condivisa',
+            title: 'Nascosta condivisa',
+            hidden: true
+        });
+        const { store } = buildMemoryStore([hiddenSharedShow]);
+
+        const fabioView = mountTrackedShows(
+            'activity', buildDeps({ store, resolveActiveProfileId: () => FABIO }), true, 'all', true);
+        await flushPromises();
+        const ireneView = mountTrackedShows(
+            'activity', buildDeps({ store, resolveActiveProfileId: () => 'irene' }), true, 'all', true);
+        await flushPromises();
+
+        expect(fabioView.controller.listItems.value.map((item) => item.id)).toEqual(['nascosta-condivisa']);
+        expect(ireneView.controller.listItems.value.map((item) => item.id)).toEqual(['nascosta-condivisa']);
     });
 });
 

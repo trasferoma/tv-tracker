@@ -401,7 +401,7 @@ describe('HomeView — lente di visibilità (criteri 3, 6, 7, 21)', () => {
 });
 
 describe('HomeView — serie nascoste (criteri 7, 8, 10, 11)', () => {
-    it('non mostra il pulsante «Mostra nascoste» quando non esiste alcuna serie nascosta', async () => {
+    it('non mostra il pulsante «Mostra serie nascoste» quando non esiste alcuna serie nascosta', async () => {
         vi.resetModules();
         vi.doMock('@/persistence/currentTrackedShowStore', () => ({
             currentTrackedShowStore: buildStubStore([buildShow()])
@@ -434,13 +434,13 @@ describe('HomeView — serie nascoste (criteri 7, 8, 10, 11)', () => {
         mountedWrappers.push(wrapper);
         await flushPromises();
 
-        expect(wrapper.find('.hidden-toggle').text()).toBe('Mostra nascoste');
+        expect(wrapper.find('.hidden-toggle').text()).toBe('Mostra serie nascoste');
         expect(wrapper.findAll('.show')).toHaveLength(0);
 
         await wrapper.find('.hidden-toggle').trigger('click');
         await flushPromises();
 
-        expect(wrapper.find('.hidden-toggle').text()).toBe('Nascondi di nuovo');
+        expect(wrapper.find('.hidden-toggle').text()).toBe('Mostra serie attive');
         expect(wrapper.findAll('.show')).toHaveLength(1);
         expect(wrapper.find('.hidden-marker').text()).toBe('Nascosta');
 
@@ -465,7 +465,7 @@ describe('HomeView — serie nascoste (criteri 7, 8, 10, 11)', () => {
         await flushPromises();
 
         expect(wrapper.text()).toContain('In base ai filtri impostati la lista è vuota');
-        expect(wrapper.text()).toContain('Mostra nascoste');
+        expect(wrapper.text()).toContain('Mostra serie nascoste');
         expect(wrapper.find('#sortMode').exists()).toBe(true);
         expect(wrapper.find('.hidden-toggle').exists()).toBe(true);
 
@@ -513,7 +513,7 @@ describe('HomeView — serie nascoste (criteri 7, 8, 10, 11)', () => {
         vi.doUnmock('@/persistence/currentTrackedShowStore');
     });
 
-    it('mostra uno stato vuoto generico quando una nascosta e una completata diverse svuotano la lista insieme', async () => {
+    it('il filtro delle nascoste è esclusivo: nascoste e attive non compaiono mai insieme', async () => {
         vi.resetModules();
         const hiddenShow = buildShow({
             id: 'nascosta',
@@ -541,16 +541,37 @@ describe('HomeView — serie nascoste (criteri 7, 8, 10, 11)', () => {
         expect(wrapper.find('.completed-toggle').exists()).toBe(true);
         expect(wrapper.findAll('.show')).toHaveLength(0);
 
+        await wrapper.find('.completed-toggle').trigger('click');
+        await flushPromises();
+
+        expect(wrapper.findAll('.show')).toHaveLength(1);
+        expect(wrapper.text()).toContain('Serie completata');
+
         await wrapper.find('.hidden-toggle').trigger('click');
         await flushPromises();
 
         expect(wrapper.findAll('.show')).toHaveLength(1);
         expect(wrapper.text()).toContain('Serie nascosta');
+        expect(wrapper.text()).not.toContain('Serie completata');
 
-        await wrapper.find('.completed-toggle').trigger('click');
+        vi.doUnmock('@/persistence/currentTrackedShowStore');
+    });
+
+    it('il pulsante resta visibile quando la preferenza è accesa anche se in lente non c\'è più nessuna nascosta', async () => {
+        vi.resetModules();
+        globalThis.localStorage.setItem('tv-tracker:show-hidden', 'true');
+        vi.doMock('@/persistence/currentTrackedShowStore', () => ({
+            currentTrackedShowStore: buildStubStore([buildShow()])
+        }));
+
+        const { default: HomeView } = await import('./HomeView.vue');
+        const wrapper = mount(HomeView, { global: { plugins: [testRouter] } });
+        mountedWrappers.push(wrapper);
         await flushPromises();
 
-        expect(wrapper.findAll('.show')).toHaveLength(2);
+        expect(wrapper.find('.hidden-toggle').exists()).toBe(true);
+        expect(wrapper.find('.hidden-toggle').text()).toBe('Mostra serie attive');
+        expect(wrapper.findAll('.show')).toHaveLength(0);
 
         vi.doUnmock('@/persistence/currentTrackedShowStore');
     });

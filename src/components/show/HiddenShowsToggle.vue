@@ -7,7 +7,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{ change: [showHidden: boolean] }>();
 
-const label = computed(() => props.showHidden ? 'Nascondi di nuovo' : 'Mostra nascoste');
+const label = computed(() => props.showHidden ? 'Mostra serie attive' : 'Mostra serie nascoste');
 
 function toggle(): void {
     emit('change', !props.showHidden);

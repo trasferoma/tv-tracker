@@ -135,7 +135,7 @@ export function useTrackedShows(
         visibleEntries.value.filter((entry) => matchesScope(entry.show, activeProfileId.value, scope.value)));
 
     const listedEntries = computed<readonly ShowComputation[]>(() =>
-        scopedEntries.value.filter((entry) => showHidden.value || !isHiddenShow(entry.show)));
+        scopedEntries.value.filter((entry) => matchesHiddenFilter(entry.show, showHidden.value)));
 
     const listItems = computed<readonly ShowListItem[]>(() =>
         sortEntries(listedEntries.value, sortMode.value)
@@ -253,6 +253,10 @@ function isHealthyEntry(entry: ShowComputation): entry is ShowComputationOk {
 
 function isCompletedEntry(entry: ShowComputation): boolean {
     return isHealthyEntry(entry) && entry.watchPosition.isCompleted;
+}
+
+function matchesHiddenFilter(show: TrackedShow, showHidden: boolean): boolean {
+    return isHiddenShow(show) === showHidden;
 }
 
 function sortEntries(entries: readonly ShowComputation[], mode: ShowSortMode): readonly ShowComputation[] {

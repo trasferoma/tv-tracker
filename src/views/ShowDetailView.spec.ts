@@ -435,7 +435,7 @@ describe('ShowDetailView — comando di nascondere', () => {
         await flushPromises();
 
         expect(wrapper.find('.toast').text()).toBe(
-            '“Serie di prova” è nascosta dall\'elenco. Puoi riportarla da qui o con «Mostra nascoste» nella home.'
+            '“Serie di prova” è nascosta dall\'elenco. Puoi riportarla da qui o con «Mostra serie nascoste» nella home.'
         );
     });
 
@@ -495,7 +495,7 @@ describe('ShowDetailView — comando di nascondere', () => {
         await flushPromises();
 
         expect(wrapper.find('.toast').text()).toBe(
-            '“Serie di prova” è nascosta dall\'elenco. Puoi riportarla da qui o con «Mostra nascoste» nella home.'
+            '“Serie di prova” è nascosta dall\'elenco. Puoi riportarla da qui o con «Mostra serie nascoste» nella home.'
         );
         expect(wrapper.find('.listing').text()).toBe('Nascondi serie');
 

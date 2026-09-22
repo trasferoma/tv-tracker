@@ -58,16 +58,18 @@ Una serie tracciata è **in elenco** oppure **nascosta**. È un dato del record 
 - Nel dettaglio di una serie nascosta lo stesso posto ospita **«Riporta in elenco»**, e sopra il comando compare la nota «Questa serie è nascosta dall'elenco.» — senza la nota, chi arriva al dettaglio per indirizzo diretto non avrebbe modo di sapere in che stato si trova.
 - **Nessun dialogo di conferma.** L'operazione è reversibile e non distrugge niente: è della stessa famiglia di «Chi vede questa serie» e del cambio di piattaforma, non di «Rimuovi dalla lista» o «Azzera tracciamento». La conferma si paga solo dove non si torna indietro.
 - Dopo il comando la vista **resta sul dettaglio** e mostra un messaggio effimero:
-  - nascosta: «“{titolo}” è nascosta dall'elenco. Puoi riportarla da qui o con «Mostra nascoste» nella home.»
+  - nascosta: «“{titolo}” è nascosta dall'elenco. Puoi riportarla da qui o con «Mostra serie nascoste» nella home.»
   - riportata in elenco: «“{titolo}” è di nuovo in elenco.»
 - Il messaggio non è decorazione: è l'unico punto in cui l'app dice dove ritrovare ciò che è appena sparito.
 
 ### 3. Il pulsante nella home
 
-Accanto ai filtri già presenti compare **«Mostra nascoste»**; quando è acceso l'etichetta diventa **«Nascondi di nuovo»**. La coppia «Mostra nascoste» / «Nascondi nascoste» è scartata di proposito: è uno scioglilingua.
+Accanto ai filtri già presenti compare **«Mostra serie nascoste»**; quando è acceso l'etichetta diventa **«Mostra serie attive»**.
+
+**Il filtro è esclusivo, non additivo** (modifica del 2026-09-22, decisa a schermo). Acceso, la lista mostra **solo** le serie nascoste; spento, **solo** le attive. I due insiemi non compaiono mai insieme, e il risultato si incrocia comunque con gli altri filtri: la lente «Tutto / Solo le mie» e «Mostra completate» continuano a restringere ciò che si vede. Le etichette nominano l'insieme che si sta per vedere, non l'azione sul precedente: per questo non sono più «Mostra nascoste» / «Nascondi di nuovo».
 
 - La preferenza vive in `localStorage`, **per dispositivo**, con chiave dedicata e valore predefinito **spento**, con la stessa meccanica e la stessa protezione delle due preferenze già esistenti. Non tocca e non sincronizza i dati condivisi.
-- Il pulsante compare **solo quando esiste almeno una serie nascosta dentro la lente corrente**, cioè fra le serie visibili a chi guarda e selezionate dalla lente «Tutto / Solo le mie». Regola analoga a quella di «Mostra completate», che compare solo con `completedCount > 0`.
+- Il pulsante compare quando esiste almeno una serie nascosta dentro la lente corrente, cioè fra le serie visibili a chi guarda e selezionate dalla lente «Tutto / Solo le mie». Regola analoga a quella di «Mostra completate», che compare solo con `completedCount > 0`. **Oppure** quando la preferenza è accesa, qualunque sia il conteggio: la preferenza è ricordata per dispositivo, e con un filtro esclusivo una lente senza nascoste lascerebbe altrimenti una lista vuota e nessun pulsante per tornare alle attive.
 - Il conteggio non compare nell'etichetta, come già deciso per le completate.
 - **Il pulsante può andare a capo.** `.controls-row` è già `flex` con `flex-wrap: wrap` e `justify-content: flex-end`: l'andata a capo è il comportamento naturale del contenitore e l'utente l'ha dichiarata accettabile. **Non** si inventa un contenitore nuovo, un menu a tendina, una riga separata dedicata, né si riorganizzano i tre filtri per farli stare su una riga sola. Il layout della riga dei controlli non si tocca.
 
@@ -80,28 +82,28 @@ Non è un dettaglio implementativo: è il comportamento richiesto. Gli insiemi, 
 | **visibili** | i record visibili al profilo attivo (mie private + condivise), nascoste comprese |
 | **attive** | le visibili **non nascoste** |
 | **in lente** | le visibili selezionate dalla lente «Tutto / Solo le mie», nascoste comprese |
-| **elencabili** | le «in lente», meno le nascoste quando «Mostra nascoste» è spento |
+| **elencabili** | le «in lente» ristrette a **un solo** insieme: le nascoste quando «Mostra serie nascoste» è acceso, le attive quando è spento |
 
 | Valore | Calcolato su | Perché |
 | --- | --- | --- |
 | Riepilogo «N nuove puntate su M serie» | **attive** | se nascondere non toglie la serie dal riepilogo, la feature non serve a niente |
 | Blocco dei duplicati in ricerca (`trackedProviderShowIds`) | **visibili**, nascoste comprese | una serie nascosta è già tracciata: riaggiungerla creerebbe un doppione con una posizione persa (§ 6) |
-| Presenza dei controlli (`hasTrackedShows`) | **visibili**, nascoste comprese | se nascondere tutto facesse sparire la riga dei controlli, «Mostra nascoste» sarebbe irraggiungibile e la scelta irreversibile |
-| Comparsa del pulsante «Mostra nascoste» | numero di nascoste fra le **in lente** | il pulsante compare solo quando ha qualcosa da rivelare |
+| Presenza dei controlli (`hasTrackedShows`) | **visibili**, nascoste comprese | se nascondere tutto facesse sparire la riga dei controlli, «Mostra serie nascoste» sarebbe irraggiungibile e la scelta irreversibile |
+| Comparsa del pulsante «Mostra serie nascoste» | numero di nascoste fra le **in lente**, **oppure** preferenza accesa | compare quando ha qualcosa da rivelare, e resta premibile finché il filtro è acceso, altrimenti il filtro esclusivo non sarebbe disattivabile |
 | Conteggio delle completate (`completedCount`) | **elencabili** | «Mostra completate» deve rivelare esattamente ciò che il filtro delle nascoste ha già lasciato passare |
 | Stato vuoto dei filtri (unico e generico) | **in lente** non vuoto ed elenco mostrato vuoto | distingue «non ne hai» da «ce le hai ma un filtro le nasconde»; non distingue più *quale* filtro |
 | Elenco mostrato | **elencabili**, meno le completate quando il loro filtro è spento | |
 
-Il riepilogo è calcolato sulle **attive** indipendentemente sia dalla lente sia da «Mostra nascoste»: nascondere è un dato condiviso e cambia il riepilogo per entrambi, le lenti locali del dispositivo non lo toccano mai. È lo stesso principio già in vigore per la lente «Solo le mie».
+Il riepilogo è calcolato sulle **attive** indipendentemente sia dalla lente sia da «Mostra serie nascoste»: nascondere è un dato condiviso e cambia il riepilogo per entrambi, le lenti locali del dispositivo non lo toccano mai. È lo stesso principio già in vigore per la lente «Solo le mie».
 
-### 5. I due filtri si sommano
+### 5. I due filtri restano indipendenti
 
-«Mostra nascoste» e «Mostra completate» sono filtri **indipendenti**: una serie sia nascosta sia completata ricompare **solo con entrambi accesi**.
+«Mostra serie nascoste» sceglie **quale** dei due insiemi si guarda, «Mostra completate» dice se dentro quell'insieme si vedono anche le completate: sono filtri **indipendenti**, e una serie sia nascosta sia completata compare **solo con entrambi accesi**.
 
 La conseguenza va detta, perché è l'unico punto in cui le due regole di comparsa dei pulsanti si intrecciano. Con una sola serie, nascosta e completata, ed entrambi i filtri spenti:
 
 1. `completedCount` è **zero** — la serie è nascosta, quindi non è fra le elencabili — e il pulsante «Mostra completate» **non** compare;
-2. il pulsante «Mostra nascoste» compare, perché esiste una nascosta in lente;
+2. il pulsante «Mostra serie nascoste» compare, perché esiste una nascosta in lente;
 3. premendolo, la serie entra fra le elencabili, `completedCount` diventa uno e compare anche «Mostra completate»;
 4. premendo anche quello, la serie appare.
 
@@ -144,7 +146,7 @@ Da dichiarare esplicitamente, perché tre feature vicine si somigliano e vanno t
 
 ### 10. Segni a schermo e testi italiani
 
-- Pulsante della home: «Mostra nascoste» quando è spento, «Nascondi di nuovo» quando è acceso.
+- Pulsante della home: «Mostra serie nascoste» quando è spento, «Mostra serie attive» quando è acceso.
 - Nella lista, con il filtro acceso, ogni serie nascosta porta un marcatore testuale discreto **«Nascosta»** nella riga del titolo, accanto all'eventuale puntino di serie privata. Senza marcatore non si distinguerebbero le nascoste dalle altre. Nessuna icona nuova, nessun colore fuori dai token di `src/styles/tokens.css`.
 - Le serie nascoste, quando sono mostrate, partecipano all'ordinamento corrente come tutte le altre: nessun raggruppamento in fondo, nessuna sezione a parte.
 - Dettaglio: comando «Nascondi serie» / «Riporta in elenco»; nota «Questa serie è nascosta dall'elenco.» solo quando lo è.
@@ -153,9 +155,9 @@ Da dichiarare esplicitamente, perché tre feature vicine si somigliano e vanno t
 
 ### 11. Casi limite
 
-- **Tutto nascosto.** I controlli restano visibili (`hasTrackedShows` guarda anche le nascoste), il pulsante «Mostra nascoste» compare e la lista mostra lo stato vuoto dedicato. La scelta è sempre reversibile.
+- **Tutto nascosto.** I controlli restano visibili (`hasTrackedShows` guarda anche le nascoste), il pulsante «Mostra serie nascoste» compare e la lista mostra lo stato vuoto dedicato. La scelta è sempre reversibile.
 - **Lente «Solo le mie» e unica serie privata nascosta.** La lista è vuota e compare lo stato vuoto generico dei filtri, con entrambi i pulsanti a portata di mano. Dopo la modifica del 2026-09-22 la home non distingue più quale filtro abbia svuotato la lista: dichiara che sono i filtri e mostra i comandi per disfarli.
-- **Serie nascosta con dati non allineati.** La riga compare in lista con «Mostra nascoste» acceso, marcata come oggi; il suo dettaglio però mostra **solo** l'avviso, senza comandi, quindi da lì non si può riportarla in elenco. Limite accettato e non aggirato: il dettaglio di una serie disallineata è deliberatamente privo di comandi, la serie non è perduta, e per riavere il comando basta un «Aggiorna» che riallinei il catalogo.
+- **Serie nascosta con dati non allineati.** La riga compare in lista con «Mostra serie nascoste» acceso, marcata come oggi; il suo dettaglio però mostra **solo** l'avviso, senza comandi, quindi da lì non si può riportarla in elenco. Limite accettato e non aggirato: il dettaglio di una serie disallineata è deliberatamente privo di comandi, la serie non è perduta, e per riavere il comando basta un «Aggiorna» che riallinei il catalogo.
 - **Serie nascosta mentre l'altra persona ne ha il dettaglio aperto.** Il dettaglio è alimentato da `subscribeToShow`: la nota compare, il comando si inverte, nessuna espulsione e nessun messaggio.
 - **Serie nascosta aperta per indirizzo diretto.** Si vede normalmente: nascondere è un filtro della lista, non un confine di accesso.
 - **Nascondere una serie già nascosta** (due dispositivi, stesso comando): l'operazione è idempotente, non produce un rifiuto e non incrementa niente.
@@ -199,10 +201,10 @@ Criteri verificabili, ognuno coperto da almeno un test.
 2. Il comando del dettaglio nasconde la serie e il comando inverso la riporta in elenco; la nota «Questa serie è nascosta dall'elenco.» compare **se e solo se** la serie è nascosta.
 3. Nascondere e riportare in elenco aggiornano `updatedAt` e lasciano invariati posizione, `lastViewedAt`, `progressRevision`, `ProgressEvent`, visibilità, piattaforma, stagioni ed episodi — in **entrambe** le implementazioni dello store.
 4. Nascondere una serie condivisa la toglie dall'elenco di entrambi: il dato sta sul record, non in `localStorage`.
-5. Il riepilogo «N nuove puntate su M serie» è calcolato sulle serie **attive**, e non cambia né al variare della lente né al variare di «Mostra nascoste».
-6. La preferenza «Mostra nascoste» è ricordata per dispositivo, vale **spento** al primo avvio e non scrive nulla nei dati condivisi.
-7. Con «Mostra nascoste» acceso le serie nascoste ricompaiono nell'ordinamento corrente, marcate con «Nascosta»; spento, non compaiono.
-8. Il pulsante «Mostra nascoste» compare **solo** quando esiste almeno una serie nascosta dentro la lente corrente, e cambia etichetta in «Nascondi di nuovo» quando è acceso.
+5. Il riepilogo «N nuove puntate su M serie» è calcolato sulle serie **attive**, e non cambia né al variare della lente né al variare di «Mostra serie nascoste».
+6. La preferenza «Mostra serie nascoste» è ricordata per dispositivo, vale **spento** al primo avvio e non scrive nulla nei dati condivisi.
+7. Con «Mostra serie nascoste» acceso la lista mostra **solo** le serie nascoste, nell'ordinamento corrente e marcate con «Nascosta»; spento, mostra **solo** le attive. I due insiemi non compaiono mai insieme, e in entrambi i casi il risultato è incrociato con la lente «Tutto / Solo le mie».
+8. Il pulsante compare quando esiste almeno una serie nascosta dentro la lente corrente **oppure** quando la preferenza è accesa — così il filtro esclusivo resta sempre disattivabile — e cambia etichetta da «Mostra serie nascoste» a «Mostra serie attive» quando è acceso.
 9. `completedCount` è calcolato **dopo** il filtro delle nascoste, e il pulsante «Mostra completate» compare solo quando è maggiore di zero.
 10. Una serie nascosta e completata ricompare solo con **entrambi** i filtri accesi, ed è raggiungibile in due passi partendo da entrambi spenti (§ 5).
 11. Quando i filtri svuotano la lista — per la lente, per le nascoste, per le completate o per più cause insieme — la home mostra l'unico stato vuoto generico «In base ai filtri impostati la lista è vuota», i controlli restano visibili e **tutti** i pulsanti che possono risolvere la situazione restano premibili. Con un messaggio che non nomina più la causa, quei pulsanti sono l'unica via d'uscita: vanno coperti da test in ogni combinazione, non solo per le nascoste. «Nessuna serie ancora» resta uno stato distinto.

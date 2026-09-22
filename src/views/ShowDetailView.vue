@@ -65,7 +65,7 @@ const hiddenListingMessage = computed(() => {
     const title = readyContent.value?.title;
     return title === undefined
         ? ''
-        : `“${title}” è nascosta dall'elenco. Puoi riportarla da qui o con «Mostra nascoste» nella home.`;
+        : `“${title}” è nascosta dall'elenco. Puoi riportarla da qui o con «Mostra serie nascoste» nella home.`;
 });
 
 const listedListingMessage = computed(() => {

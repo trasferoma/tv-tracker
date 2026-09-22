@@ -64,6 +64,8 @@ const addShowDeps: AddShowDeps = {
 };
 
 const hasAnyTrackedShow = computed(() => trackedShows.hasTrackedShows.value);
+const shouldShowHiddenToggle = computed(() =>
+    trackedShows.hiddenCount.value > 0 || hiddenShows.showHidden.value);
 const hasVisibleShows = computed(() => trackedShows.listItems.value.length > 0);
 const isFilteredEmptyState = computed(() => !hasVisibleShows.value && hasAnyTrackedShow.value);
 const isConfirmDialogOpen = computed(() => trackedShows.pendingWatch.value !== undefined);
@@ -205,7 +207,7 @@ async function confirmReplaceImport(): Promise<void> {
           @change="changeCompletedVisibility"
         />
         <HiddenShowsToggle
-          v-if="trackedShows.hiddenCount.value > 0"
+          v-if="shouldShowHiddenToggle"
           :show-hidden="hiddenShows.showHidden.value"
           @change="changeHiddenShows"
         />

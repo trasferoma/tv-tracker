@@ -19,16 +19,16 @@ afterEach(() => {
 });
 
 describe('HiddenShowsToggle', () => {
-    it('mostra "Mostra nascoste" quando le nascoste sono nascoste', () => {
+    it('mostra "Mostra serie nascoste" quando il filtro esclusivo sulle nascoste è spento', () => {
         const wrapper = mountToggle(false);
 
-        expect(wrapper.find('.hidden-toggle').text()).toBe('Mostra nascoste');
+        expect(wrapper.find('.hidden-toggle').text()).toBe('Mostra serie nascoste');
     });
 
-    it('mostra "Nascondi di nuovo" quando le nascoste sono visibili', () => {
+    it('mostra "Mostra serie attive" quando il filtro esclusivo sulle nascoste è acceso', () => {
         const wrapper = mountToggle(true);
 
-        expect(wrapper.find('.hidden-toggle').text()).toBe('Nascondi di nuovo');
+        expect(wrapper.find('.hidden-toggle').text()).toBe('Mostra serie attive');
     });
 
     it('emette il valore invertito al click', async () => {
